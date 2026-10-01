@@ -51,9 +51,23 @@ echo "Дальше нужны токены и id — их можно ввест�
 echo
 
 read -rp "BOT_TOKEN (от @BotFather): " BOT_TOKEN
-read -rp "ANTHROPIC_API_KEY (console.anthropic.com): " ANTHROPIC_API_KEY
+echo "Какой нейросетью переписывать новости?"
+echo "  1) Claude   (Anthropic, console.anthropic.com)"
+echo "  2) GPT      (OpenAI, platform.openai.com)"
+echo "  3) Gemini   (Google, aistudio.google.com)"
+echo "  4) DeepSeek (platform.deepseek.com)"
+read -rp "Номер [1]: " AI_CHOICE
+case "${AI_CHOICE:-1}" in
+    1) AI_PROVIDER=anthropic ;;
+    2) AI_PROVIDER=openai ;;
+    3) AI_PROVIDER=gemini ;;
+    4) AI_PROVIDER=deepseek ;;
+    *) echo "Нет такого варианта: ${AI_CHOICE}" >&2; exit 1 ;;
+esac
+AI_KEY_NAME="${AI_PROVIDER^^}_API_KEY"
+read -rp "${AI_KEY_NAME}: " AI_KEY
 read -rp "ADMIN_CHAT_IDS (свой Telegram id, через запятую если админов несколько): " ADMIN_CHAT_IDS
-read -rp "Тематика канала для Claude, например «автомобильные новости» [автомобильные новости]: " BOT_TOPIC
+read -rp "Тематика канала, например «автомобильные новости» [автомобильные новости]: " BOT_TOPIC
 BOT_TOPIC=${BOT_TOPIC:-автомобильные новости}
 read -rp "Таймзона (IANA) [Europe/Moscow]: " TIMEZONE
 TIMEZONE=${TIMEZONE:-Europe/Moscow}
@@ -67,7 +81,8 @@ echo "не забудь поправить .env и перезапустить с
 
 cat > "$REPO_DIR/.env" <<EOF
 BOT_TOKEN=${BOT_TOKEN}
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+AI_PROVIDER=${AI_PROVIDER}
+${AI_KEY_NAME}=${AI_KEY}
 ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
 
 # Заглушка — обнови после /get_topic_id (см. вывод выше)

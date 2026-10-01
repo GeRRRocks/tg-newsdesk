@@ -116,7 +116,7 @@ async def send_draft_for_moderation(bot: Bot, news_id: int) -> None:
 
 async def _publish_to_group(bot: Bot, draft: Draft) -> None:
     settings = get_settings()
-    # У бота parse_mode=HTML по умолчанию, а текст приходит от Claude по
+    # У бота parse_mode=HTML по умолчанию, а текст приходит от нейросети по
     # материалам сторонних сайтов — без экранирования символы <, >, & ломали
     # бы отправку или превращались в разметку, которой админ в карточке не видел.
     text = html.escape(draft.text, quote=False)

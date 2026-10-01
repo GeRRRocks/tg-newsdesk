@@ -123,7 +123,7 @@ class DraftNotification(Base):
 class BotSetting(Base):
     """Единственная строка (id=1) рантайм-настроек, изменяемых из меню бота
     без правки .env и перезапуска: интервал автогенерации и системный промпт
-    Claude (тема, длина поста, упоминание фото и т.п. — всё это просто текст
+    нейросети (тема, длина поста, упоминание фото и т.п. — всё это просто текст
     промпта)."""
 
     __tablename__ = "bot_settings"
@@ -146,6 +146,8 @@ class BotSetting(Base):
         server_default="mon,tue,wed,thu,fri,sat,sun",
     )
     weekly_times: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    # Нейросеть, выбранная в меню «🤖 Нейросеть». NULL = AI_PROVIDER из .env
+    ai_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     def __repr__(self) -> str:
         return f"<BotSetting draft_interval_minutes={self.draft_interval_minutes}>"

@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from bot.config import get_settings
@@ -16,6 +17,11 @@ async def init_models() -> None:
     """Создаёт таблицы, если их ещё нет. На следующих этапах заменим на Alembic-миграции."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # create_all не добавляет колонки в уже существующие таблицы, а
+        # миграций нет — новые колонки дописываются здесь, идемпотентно.
+        await conn.execute(
+            text("ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_provider VARCHAR(16)")
+        )
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

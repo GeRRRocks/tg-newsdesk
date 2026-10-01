@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 from bot.config import get_settings
 from bot.db.session import init_models
 from bot.handlers import get_routers
+from bot.services.ai import describe_provider
 from bot.services.scheduler import setup_scheduler
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ async def main() -> None:
         dp.include_router(router)
 
     await init_models()
+    logger.info("Тексты генерирует: %s", await describe_provider())
 
     scheduler = await setup_scheduler(bot)
     dp["scheduler"] = scheduler

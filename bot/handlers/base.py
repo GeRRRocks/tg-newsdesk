@@ -49,6 +49,11 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
                     text="🏷 Промт", callback_data=MenuCallback(action="prompt").pack()
                 ),
                 InlineKeyboardButton(
+                    text="🤖 Нейросеть", callback_data=MenuCallback(action="ai").pack()
+                ),
+            ],
+            [
+                InlineKeyboardButton(
                     text="🏓 Пинг", callback_data=MenuCallback(action="ping").pack()
                 ),
             ],

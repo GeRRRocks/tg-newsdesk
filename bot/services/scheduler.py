@@ -26,7 +26,7 @@ from bot.config import get_settings
 from bot.db.models import BotSetting, Draft, PostedNews, Source
 from bot.db.session import async_session_factory
 from bot.handlers.moderation import send_draft_for_moderation
-from bot.services.claude import generate_post_text
+from bot.services.ai import generate_post_text
 from bot.services.news import NewsItem, collect_latest_unseen
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ DRAFT_JOB_ID = "generate_draft"
 WEEKLY_JOB_PREFIX = "generate_draft_weekly_"
 
 # Один цикл генерации за раз: параллельные запуски (кнопка + расписание или
-# два нажатия подряд) выбирали бы одну и ту же новость и дважды платили Claude.
+# два нажатия подряд) выбирали бы одну и ту же новость и дважды платили за генерацию.
 _generation_lock = asyncio.Lock()
 
 # Порядок фиксирован — используется и для сортировки дней в UI/cron.
@@ -186,7 +186,7 @@ async def collect_next_draft_candidate() -> NewsItem | None:
 
 
 async def generate_draft_job(bot: Bot) -> str:
-    """Один цикл: собрать новость -> сгенерировать черновик через Claude ->
+    """Один цикл: собрать новость -> сгенерировать черновик через нейросеть ->
     отправить админам на модерацию. Если генерация не удалась, запись о
     новости откатывается — её подхватит следующий запуск.
 

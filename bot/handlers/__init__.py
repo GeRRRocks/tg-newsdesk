@@ -1,5 +1,6 @@
 from aiogram import Router
 
+from bot.handlers.ai import router as ai_router
 from bot.handlers.base import router as base_router
 from bot.handlers.generate import router as generate_router
 from bot.handlers.moderation import router as moderation_router
@@ -16,5 +17,6 @@ def get_routers() -> list[Router]:
         generate_router,
         schedule_router,
         prompt_router,
+        ai_router,
         moderation_router,
     ]

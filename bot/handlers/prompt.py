@@ -1,4 +1,4 @@
-"""Просмотр, редактирование и сброс системного промпта Claude из меню — без
+"""Просмотр, редактирование и сброс системного промпта нейросети из меню — без
 перезапуска бота. Промпт — свободный текст, поэтому этим же способом можно
 управлять длиной поста, упоминанием фото, тоном и чем угодно ещё."""
 
@@ -15,7 +15,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from bot.config import get_settings
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback, main_menu_keyboard
-from bot.services.claude import build_default_system_prompt, get_system_prompt, set_system_prompt
+from bot.services.ai import build_default_system_prompt, get_system_prompt, set_system_prompt
 
 router = Router(name="prompt")
 router.message.filter(IsAdmin())
@@ -64,7 +64,7 @@ async def cb_open_prompt(query: CallbackQuery) -> None:
     current = await get_system_prompt()
     if query.message is not None:
         await query.message.edit_text(
-            f"🏷 Текущий промпт для Claude:\n\n{_preview(current)}", reply_markup=_prompt_keyboard()
+            f"🏷 Текущий промпт для нейросети:\n\n{_preview(current)}", reply_markup=_prompt_keyboard()
         )
     await query.answer()
 

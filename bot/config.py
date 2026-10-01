@@ -1,5 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,7 +9,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     bot_token: str
-    anthropic_api_key: str
+    # Какой нейросетью переписывать новости. Нужен ключ только выбранного
+    # провайдера; ai_model — необязательная замена модели по умолчанию.
+    ai_provider: Literal["anthropic", "openai", "gemini", "deepseek"] = "anthropic"
+    ai_model: str | None = None
+    anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
+    gemini_api_key: str | None = None
+    deepseek_api_key: str | None = None
     # список chat_id админов через запятую (например "111,222") — у каждого
     # свои права на команды, черновики на модерацию рассылаются всем сразу
     admin_chat_ids: str
@@ -16,10 +25,42 @@ class Settings(BaseSettings):
     database_url: str
     timezone: str = "Europe/Moscow"
     draft_interval_minutes: int = 60
-    # Тематика канала — вставляется в системный промпт Claude. Источники
+    # Тематика канала — вставляется в системный промпт нейросети. Источники
     # (RSS/HTML) уже тематически нейтральны, так что смена темы + источников
     # достаточна, чтобы превратить бота в канал про что угодно.
     bot_topic: str = "автомобильные новости"
+
+    @field_validator(
+        "ai_model",
+        "anthropic_api_key",
+        "openai_api_key",
+        "gemini_api_key",
+        "deepseek_api_key",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        # В .env строки вида "OPENAI_API_KEY=" остаются пустыми для
+        # неиспользуемых провайдеров — считаем их незаданными.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _require_provider_key(self) -> "Settings":
+        if not self.ai_api_key:
+            raise ValueError(
+                f"AI_PROVIDER={self.ai_provider}, но {self.ai_provider.upper()}_API_KEY не задан в .env"
+            )
+        return self
+
+    def api_key_for(self, provider: str) -> str | None:
+        return getattr(self, f"{provider}_api_key")
+
+    @property
+    def ai_api_key(self) -> str | None:
+        """Ключ провайдера, выбранного в .env."""
+        return self.api_key_for(self.ai_provider)
 
     @property
     def admin_ids(self) -> set[int]:
