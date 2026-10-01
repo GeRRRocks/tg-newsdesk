@@ -228,20 +228,34 @@ async def _generate_openai_compatible(
     return content.strip() or None
 
 
+async def _complete(system_prompt: str, user_content: str) -> str | None:
+    """Один запрос к выбранной нейросети; None — отказ API, лимит или сеть."""
+    provider = await get_active_provider()
+    if provider == "anthropic":
+        return await _generate_anthropic(system_prompt, user_content)
+    return await _generate_openai_compatible(provider, system_prompt, user_content)
+
+
 async def generate_text(title: str, summary: str | None, previous: str | None = None) -> str | None:
     """Переписывает новость в стиль Telegram-поста через выбранную нейросеть.
     previous — уже показанный админу вариант: нейросеть просят написать иначе.
     Считается некритичной операцией: при отказе API, лимите запросов или
     сетевой ошибке возвращает None, не роняя цикл планировщика."""
-    provider = await get_active_provider()
     system_prompt = await get_system_prompt()
     user_content = t("ai.user_content", title=title, summary=summary or t("ai.no_summary"))
     if previous:
         user_content += t("ai.previous", previous=previous)
+    return await _complete(system_prompt, user_content)
 
-    if provider == "anthropic":
-        return await _generate_anthropic(system_prompt, user_content)
-    return await _generate_openai_compatible(provider, system_prompt, user_content)
+
+async def generate_system_prompt(description: str, previous: str | None = None) -> str | None:
+    """Составляет системный промпт по описанию админа («какими должны быть
+    посты») через выбранную нейросеть. previous — уже показанный вариант:
+    нейросеть просят написать иначе. None — нейросеть не ответила."""
+    user_content = t("ai.meta_user", description=description)
+    if previous:
+        user_content += t("ai.meta_previous", previous=previous)
+    return await _complete(t("ai.meta_prompt"), user_content)
 
 
 async def generate_post_text(item: NewsItem) -> str | None:

@@ -228,7 +228,7 @@ Everything is done with buttons; `/start` opens the main menu:
 | ➕ Добавить (Add) | wizard: address of a site, feed or Telegram channel → the bot detects the type → a name or “Skip” |
 | ⚡ Сгенерировать (Generate) | collect a news item and generate a draft now, without waiting for the schedule |
 | ⏱ Расписание (Schedule) | auto-generation mode and parameters, see below |
-| 🏷 Промт (Prompt) | view, change or reset the LLM system prompt |
+| 🏷 Промт (Prompt) | view, reset or replace the LLM system prompt: enter it manually or generate it from a description |
 | 🤖 Нейросеть (LLM) | which LLM writes the posts; switch between those with keys in `.env`, see [LLM provider](#llm-provider) |
 | 🚫 Фильтр (Filter) | stop words and required words for news, see [Word filter](#word-filter) |
 | 🏓 Пинг (Ping) | check that the bot is alive |
@@ -335,6 +335,16 @@ The subject is defined only by the LLM system prompt:
 - **`BOT_TOPIC` in `.env`** — inserted into the default prompt;
 - **the “🏷 Промт” button** — replaces the whole prompt text on the fly. That
   is also where you set post length, tone, format and anything else.
+
+There are two ways to replace the prompt:
+
+- **“✏️ Задать вручную” (Enter manually)** — send a ready prompt text;
+- **“✨ Сгенерировать по описанию” (Generate from a description)** — describe
+  in your own words what the posts should be like (up to 1000 characters) and
+  the selected LLM writes the prompt itself. The bot shows the result with the
+  buttons “✅ Сохранить” (Save), “🔄 Другой вариант” (Another version) and
+  “❌ Отмена” (Cancel): the active prompt changes only after Save. Each
+  generation is one request to the LLM.
 
 To move the bot to another subject, change the prompt and the set of sources —
 no code changes needed. The prompt does not depend on the selected LLM.
