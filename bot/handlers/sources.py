@@ -19,6 +19,7 @@ from bot.db.models import NewsStatus, PostedNews, Source, SourceType
 from bot.db.session import async_session_factory
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback, main_menu_keyboard
+from bot.services.telegram_channel import channel_url, channel_username
 
 router = Router(name="sources")
 router.message.filter(IsAdmin())
@@ -37,7 +38,7 @@ class SourceCallback(CallbackData, prefix="src"):
 
 
 class AddSourceTypeCallback(CallbackData, prefix="srctype"):
-    source_type: str  # "rss" | "html"
+    source_type: str  # "rss" | "html"; Telegram-канал определяется по адресу сам
 
 
 class CancelWizardCallback(CallbackData, prefix="srccancel"):
@@ -46,6 +47,13 @@ class CancelWizardCallback(CallbackData, prefix="srccancel"):
 
 class SkipNameCallback(CallbackData, prefix="srcskipname"):
     pass
+
+
+_TYPE_LABELS = {
+    SourceType.RSS: "RSS-фид",
+    SourceType.HTML: "HTML-страница",
+    SourceType.TELEGRAM: "Telegram-канал",
+}
 
 
 def _cancel_keyboard() -> InlineKeyboardMarkup:
@@ -137,9 +145,8 @@ def _source_detail_text(source: Source, counts: dict[NewsStatus, int]) -> str:
     status = "включён ▶️" if source.is_active else "выключен ⏸"
     # Название и URL вводит админ — экранируем, т.к. у бота parse_mode=HTML
     name_line = f"\nНазвание: {html.escape(source.name, quote=False)}" if source.name else ""
-    type_label = "RSS-фид" if source.source_type == SourceType.RSS else "HTML-страница"
     return (
-        f"Тип: {type_label}{name_line}\nURL: {html.escape(source.url, quote=False)}\n"
+        f"Тип: {_TYPE_LABELS[source.source_type]}{name_line}\nURL: {html.escape(source.url, quote=False)}\n"
         f"Статус: {status}\n\n📊 Черновики: {_stats_line(counts)}"
     )
 
@@ -245,7 +252,8 @@ async def cb_start_add_source(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AddSourceStates.waiting_url)
     if query.message is not None:
         await query.message.answer(
-            "Пришли URL источника (должен начинаться с http:// или https://).",
+            "Пришли адрес источника: URL сайта или RSS-фида (с http:// или https://) "
+            "либо публичный Telegram-канал — @имя или ссылку t.me/имя.",
             reply_markup=_cancel_keyboard(),
         )
     await query.answer()
@@ -254,9 +262,19 @@ async def cb_start_add_source(query: CallbackQuery, state: FSMContext) -> None:
 @router.message(AddSourceStates.waiting_url)
 async def add_source_got_url(message: Message, state: FSMContext) -> None:
     url = (message.text or "").strip()
+    username = channel_username(url)
+    if username is not None:
+        # Канал хранится адресом своей веб-версии; тип спрашивать незачем
+        await state.update_data(url=channel_url(username), source_type=SourceType.TELEGRAM.value)
+        await state.set_state(AddSourceStates.waiting_name)
+        await message.answer(
+            f"Telegram-канал @{username}. Название источника? Пришли текстом или нажми «Пропустить».",
+            reply_markup=_skip_name_keyboard(),
+        )
+        return
     if not url.startswith(("http://", "https://")):
         await message.answer(
-            "URL должен начинаться с http:// или https://. Пришли ещё раз.",
+            "Нужен URL с http:// или https:// либо Telegram-канал (@имя или t.me/имя). Пришли ещё раз.",
             reply_markup=_cancel_keyboard(),
         )
         return
@@ -274,7 +292,7 @@ async def add_source_got_type(
     await state.set_state(AddSourceStates.waiting_name)
     if query.message is not None:
         await query.message.edit_text(
-            "Название источника? Пришли текстом или нажми «Без названия».",
+            "Название источника? Пришли текстом или нажми «Пропустить».",
             reply_markup=_skip_name_keyboard(),
         )
     await query.answer()
@@ -291,7 +309,7 @@ async def _create_source(target: Message, url: str, source_type: str, name: str 
             await target.answer("⚠️ Такой источник уже добавлен.", reply_markup=main_menu_keyboard())
             return
 
-    type_label = "RSS-фид" if source_type == SourceType.RSS.value else "HTML-страница"
+    type_label = _TYPE_LABELS[SourceType(source_type)]
     name_line = f"\nНазвание: {html.escape(name, quote=False)}" if name else ""
     await target.answer(
         f"✅ Источник добавлен (id={source.id})\nТип: {type_label}\n"

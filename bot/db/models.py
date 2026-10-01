@@ -22,10 +22,12 @@ class SourceType(str, enum.Enum):
     RSS = "rss"
     # обычная страница со списком новостей — для сайтов без RSS-фида
     HTML = "html"
+    # публичный Telegram-канал, читается через веб-версию t.me/s/<имя>
+    TELEGRAM = "telegram"
 
 
 class Source(Base):
-    """Источник новостей (RSS-фид или обычная HTML-страница), добавляемый/
+    """Источник новостей (RSS-фид, HTML-страница или Telegram-канал), добавляемый/
     удаляемый через команды бота."""
 
     __tablename__ = "sources"

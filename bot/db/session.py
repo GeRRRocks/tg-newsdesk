@@ -24,8 +24,9 @@ async def init_models() -> None:
             "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS filter_stop_words TEXT",
             "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS filter_required_words TEXT",
             "ALTER TABLE posted_news ADD COLUMN IF NOT EXISTS summary TEXT",
-            # Новое значение нативного enum; метка — .name, см. models.py
+            # Новые значения нативных enum; метка — .name, см. models.py
             "ALTER TYPE newsstatus ADD VALUE IF NOT EXISTS 'EXPIRED'",
+            "ALTER TYPE sourcetype ADD VALUE IF NOT EXISTS 'TELEGRAM'",
         ):
             await conn.execute(text(statement))
 

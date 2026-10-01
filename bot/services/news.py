@@ -1,4 +1,4 @@
-"""Парсинг источников новостей (RSS и обычных HTML-страниц) и отбор свежих."""
+"""Парсинг источников новостей (RSS, HTML-страниц, Telegram-каналов) и отбор свежих."""
 
 from __future__ import annotations
 
@@ -148,12 +148,16 @@ async def fetch_source_items(
 ) -> list[NewsItem] | None:
     """Скачивает и парсит один источник. Для RSS — сам фид, для обычной страницы
     (source.source_type == HTML) — делегирует в bot.services.scraper, который
-    находит ссылки на статьи и вытаскивает их og-теги. Если источник не
-    открылся, возвращает None, не роняя весь цикл сбора новостей."""
+    находит ссылки на статьи и вытаскивает их og-теги, для Telegram-канала — в
+    bot.services.telegram_channel. Если источник не открылся, возвращает None, не роняя весь цикл сбора новостей."""
     if source.source_type == SourceType.HTML:
         from bot.services.scraper import fetch_html_source_items
 
         return await fetch_html_source_items(client, source)
+    if source.source_type == SourceType.TELEGRAM:
+        from bot.services.telegram_channel import fetch_telegram_source_items
+
+        return await fetch_telegram_source_items(client, source)
 
     raw = await _fetch_bytes(client, source.url)
     if raw is None:
