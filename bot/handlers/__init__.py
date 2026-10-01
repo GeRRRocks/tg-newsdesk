@@ -7,6 +7,7 @@ from bot.handlers.generate import router as generate_router
 from bot.handlers.moderation import router as moderation_router
 from bot.handlers.news_filter import router as news_filter_router
 from bot.handlers.prompt import router as prompt_router
+from bot.handlers.qa import router as qa_router
 from bot.handlers.schedule import router as schedule_router
 from bot.handlers.sources import router as sources_router
 
@@ -22,5 +23,6 @@ def get_routers() -> list[Router]:
         ai_router,
         news_filter_router,
         moderation_router,
+        qa_router,
         errors_router,
     ]

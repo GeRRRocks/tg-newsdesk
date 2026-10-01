@@ -34,10 +34,18 @@ class Settings(BaseSettings):
     bot_topic: str | None = None
     # Язык меню, сообщений админам и промпта по умолчанию.
     bot_language: Literal["ru", "en"] = "ru"
+    # Ответы нейросети на вопросы участников целевой группы (упоминание бота).
+    # Лимиты — за 24 часа с первого вопроса: на одного участника и на всех.
+    qa_enabled: bool = False
+    # Топик группы, в котором бот отвечает на вопросы. Не задан — в любом.
+    qa_topic_id: int | None = None
+    qa_user_daily_limit: int = 3
+    qa_global_daily_limit: int = 50
 
     @field_validator(
         "ai_model",
         "bot_topic",
+        "qa_topic_id",
         "anthropic_api_key",
         "openai_api_key",
         "gemini_api_key",

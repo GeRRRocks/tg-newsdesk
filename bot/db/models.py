@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -175,3 +175,20 @@ class Topic(Base):
 
     def __repr__(self) -> str:
         return f"<Topic id={self.id} name={self.name!r} thread_id={self.thread_id}>"
+
+
+class QaUsage(Base):
+    """Счётчик вопросов боту в группе за текущее суточное окно. Одна строка на
+    участника (user_id из Telegram) и одна общая на всех — с user_id=0. Окно
+    начинается с первого вопроса; см. bot/services/qa.py."""
+
+    __tablename__ = "qa_usage"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    # об исчерпанном лимите уже сказали — до конца окна молчим
+    limit_notified: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    def __repr__(self) -> str:
+        return f"<QaUsage user_id={self.user_id} count={self.count}>"

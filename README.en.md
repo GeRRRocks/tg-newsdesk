@@ -142,6 +142,7 @@ nothing is hard-coded. `.env` is not tracked by git.
 | `DRAFT_EXPIRE_HOURS` | hours after which an unanswered draft closes on its own; 24 by default, `0` — never |
 | `BOT_TOPIC` | subject for the default prompt; if unset — “car news” (or its Russian equivalent) |
 | `BOT_LANGUAGE` | bot language: `ru` (default) or `en`, see [Bot language](#bot-language) |
+| `QA_ENABLED`, `QA_TOPIC_ID`, `QA_USER_DAILY_LIMIT`, `QA_GLOBAL_DAILY_LIMIT` | answers to group members' questions and their limits, see [Questions to the bot in the group](#questions-to-the-bot-in-the-group); off, 3 and 50 by default |
 | `BACKUP_TIME`, `BACKUP_KEEP_DAYS` | time of the daily dump (`03:30` by default) and how many days local copies are kept (14) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_PREFIX` | storage for database copies, see [Backups](#backups); optional |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | credentials of the PostgreSQL container (Docker only) |
@@ -349,6 +350,58 @@ There are two ways to replace the prompt:
 To move the bot to another subject, change the prompt and the set of sources —
 no code changes needed. The prompt does not depend on the selected LLM.
 
+### Questions to the bot in the group
+
+A group member can mention the bot and ask a question — the bot replies
+through the selected LLM. The question must start with the word “Question:”
+(or “Вопрос:”), otherwise the bot does not notice it — this keeps it out of
+conversations between members who merely mention it:
+
+```
+@bot_username Question: how does a steering rack work?
+```
+
+Case does not matter, and the mention may come before the marker or after the
+question (`Question: how does a steering rack work? @bot_username`). Both
+words are accepted whatever the bot language is.
+
+The feature is off by default because every answer is a paid LLM request.
+Enable it in `.env`; it takes effect after `make restart`:
+
+```env
+QA_ENABLED=true
+QA_TOPIC_ID=               # topic for questions; empty — any topic of the group
+QA_USER_DAILY_LIMIT=3      # questions per member
+QA_GLOBAL_DAILY_LIMIT=50   # answers for all members together
+```
+
+- **Subject.** The bot answers questions on the channel's subject
+  (`BOT_TOPIC`) in the broad sense — not only about news, but also about how
+  things work, terms, choosing and maintenance. It politely declines
+  off-topic questions; such a refusal also spends an attempt, because the LLM
+  writes it.
+- **Limits.** Both are counted over 24 hours from the first question: once
+  the window has passed, the counter is reset and a new window starts with
+  the next question. Counters are stored in the database and survive a
+  restart. If the LLM did not respond, the attempt is not counted.
+- **When a limit is used up,** the bot says once when asking will be possible
+  again and silently skips further questions until then.
+- **Admins** from `ADMIN_CHAT_IDS` are not limited.
+- **Where it works.** Only in the group from `TARGET_GROUP_CHAT_ID`; in other
+  chats the bot does not react to mentions. If `QA_TOPIC_ID` is set, the bot
+  answers only in that topic and silently skips mentions in the others; send
+  `/get_topic_id` inside the topic to learn its id. Without `QA_TOPIC_ID` — in
+  any topic. A question
+  is up to 500 characters. A message without a mention of the bot or without the
+  “Question:” marker is not treated as a question, even when it is a reply to
+  the bot's message.
+
+The LLM has no internet access: it can be wrong about prices, dates and
+recent events. Answers are posted to the group right away, without
+moderation. The question text is sent to the provider of the selected LLM;
+in the database the bot stores only the member's Telegram id and their
+counter for the current day.
+
 ## Backups
 
 The `backup` container dumps the database every day at `BACKUP_TIME` into the
@@ -466,6 +519,7 @@ bot/
     generate.py         # the “Generate” button
     schedule.py         # schedule menu
     prompt.py           # prompt menu
+    qa.py               # answers to group members' questions
     ai.py               # LLM selection menu
     news_filter.py      # word filter menu
     moderation.py       # draft card: publishing, editing, auto-expiry
@@ -477,10 +531,11 @@ bot/
     telegram_channel.py # collecting posts from public Telegram channels
     ai.py               # rewriting an item with the selected LLM
     news_filter.py      # word filter for news
+    qa.py               # limits for questions to the bot in the group
     alerts.py           # failure messages to admins
     scheduler.py        # schedule and the collect → generate → send cycle
   db/
-    models.py           # Source, PostedNews, Draft, DraftNotification, BotSetting, Topic
+    models.py           # Source, PostedNews, Draft, DraftNotification, BotSetting, Topic, QaUsage
     session.py          # async engine and sessions
 Dockerfile              # bot image
 Dockerfile.backup       # backup image

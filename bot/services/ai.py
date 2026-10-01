@@ -258,6 +258,13 @@ async def generate_system_prompt(description: str, previous: str | None = None) 
     return await _complete(t("ai.meta_prompt"), user_content)
 
 
+async def answer_question(question: str) -> str | None:
+    """Ответ на вопрос участника группы по теме канала. None — нейросеть не
+    ответила."""
+    topic = get_settings().bot_topic or t("default_topic")
+    return await _complete(t("ai.qa_prompt", topic=topic), question)
+
+
 async def generate_post_text(item: NewsItem) -> str | None:
     """Текст поста для свежей новости; None — эту новость подхватит следующий запуск."""
     return await generate_text(item.title, item.summary)
