@@ -11,6 +11,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.db.models import Draft, DraftNotification, NewsStatus, PostedNews
@@ -168,6 +169,14 @@ async def _resolve_notifications(bot: Bot, draft_id: int, status_note: str) -> N
             pass
 
 
+async def _lock_news(session: AsyncSession, news_id: int) -> PostedNews | None:
+    """Читает новость с блокировкой строки (SELECT ... FOR UPDATE) до конца
+    транзакции. Без неё два админа, нажавшие кнопку одновременно, оба видели
+    статус PENDING и черновик публиковался дважды. Теперь второй ждёт, пока
+    первый закончит, и получает уже обновлённый статус."""
+    return await session.get(PostedNews, news_id, with_for_update=True)
+
+
 def _actor_name(query: CallbackQuery) -> str:
     return query.from_user.full_name if query.from_user else "неизвестно"
 
@@ -175,7 +184,7 @@ def _actor_name(query: CallbackQuery) -> str:
 @router.callback_query(DraftCallback.filter(F.action == "approve"))
 async def cb_approve(query: CallbackQuery, callback_data: DraftCallback, bot: Bot) -> None:
     async with async_session_factory() as session:
-        news = await session.get(PostedNews, callback_data.news_id)
+        news = await _lock_news(session, callback_data.news_id)
         draft = (
             await session.execute(
                 select(Draft).where(Draft.news_id == callback_data.news_id)
@@ -208,7 +217,7 @@ async def cb_approve(query: CallbackQuery, callback_data: DraftCallback, bot: Bo
 @router.callback_query(DraftCallback.filter(F.action == "reject"))
 async def cb_reject(query: CallbackQuery, callback_data: DraftCallback, bot: Bot) -> None:
     async with async_session_factory() as session:
-        news = await session.get(PostedNews, callback_data.news_id)
+        news = await _lock_news(session, callback_data.news_id)
         draft = (
             await session.execute(
                 select(Draft).where(Draft.news_id == callback_data.news_id)
