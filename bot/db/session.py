@@ -23,6 +23,7 @@ async def init_models() -> None:
             "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_provider VARCHAR(16)",
             "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS filter_stop_words TEXT",
             "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS filter_required_words TEXT",
+            "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS qa_prompt TEXT",
             "ALTER TABLE posted_news ADD COLUMN IF NOT EXISTS summary TEXT",
             # Новые значения нативных enum; метка — .name, см. models.py
             "ALTER TYPE newsstatus ADD VALUE IF NOT EXISTS 'EXPIRED'",

@@ -152,6 +152,10 @@ class BotSetting(Base):
         server_default="mon,tue,wed,thu,fri,sat,sun",
     )
     weekly_times: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    # Редактируемая часть инструкции для ответов на вопросы в группе.
+    # NULL = стандартная, собранная из BOT_TOPIC. Защитные правила к ней
+    # дописываются в коде и здесь не хранятся, см. bot/services/ai.py
+    qa_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Нейросеть, выбранная в меню «🤖 Нейросеть». NULL = AI_PROVIDER из .env
     ai_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Фильтр новостей из меню «🚫 Фильтр»: слова через запятую, в нижнем

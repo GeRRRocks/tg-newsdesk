@@ -248,21 +248,55 @@ async def generate_text(title: str, summary: str | None, previous: str | None = 
     return await _complete(system_prompt, user_content)
 
 
-async def generate_system_prompt(description: str, previous: str | None = None) -> str | None:
-    """Составляет системный промпт по описанию админа («какими должны быть
-    посты») через выбранную нейросеть. previous — уже показанный вариант:
-    нейросеть просят написать иначе. None — нейросеть не ответила."""
+async def generate_system_prompt(
+    description: str, previous: str | None = None, kind: str = "post"
+) -> str | None:
+    """Составляет по описанию админа промпт для постов (kind="post") или
+    инструкцию для ответов на вопросы (kind="qa") через выбранную нейросеть.
+    previous — уже показанный вариант: нейросеть просят написать иначе.
+    None — нейросеть не ответила."""
     user_content = t("ai.meta_user", description=description)
     if previous:
         user_content += t("ai.meta_previous", previous=previous)
-    return await _complete(t("ai.meta_prompt"), user_content)
+    return await _complete(t("ai.meta_qa_prompt" if kind == "qa" else "ai.meta_prompt"), user_content)
+
+
+def default_qa_prompt() -> str:
+    return t("ai.qa_default", topic=get_settings().bot_topic or t("default_topic"))
+
+
+def qa_rules() -> str:
+    """Защитные правила ответов на вопросы. Дописываются к инструкции при
+    каждом запросе и из меню не меняются: вопросы задают не админы."""
+    return t("ai.qa_rules")
+
+
+async def get_qa_prompt() -> str:
+    """Редактируемая часть инструкции для ответов на вопросы: заданная через
+    меню «🏷 Промт», иначе стандартная, собранная из BOT_TOPIC."""
+    async with async_session_factory() as session:
+        setting = await session.get(BotSetting, 1)
+        if setting is not None and setting.qa_prompt:
+            return setting.qa_prompt
+    return default_qa_prompt()
+
+
+async def set_qa_prompt(prompt: str | None) -> None:
+    """Сохраняет инструкцию для ответов. prompt=None — сброс на стандартную."""
+    async with async_session_factory() as session:
+        setting = await session.get(BotSetting, 1)
+        if setting is None:
+            session.add(BotSetting(id=1, qa_prompt=prompt))
+        else:
+            setting.qa_prompt = prompt
+        await session.commit()
 
 
 async def answer_question(question: str) -> str | None:
-    """Ответ на вопрос участника группы по теме канала. None — нейросеть не
-    ответила."""
-    topic = get_settings().bot_topic or t("default_topic")
-    return await _complete(t("ai.qa_prompt", topic=topic), question)
+    """Ответ на вопрос участника группы. Правила идут после инструкции админа,
+    чтобы её текст не мог их отменить. None — нейросеть не ответила."""
+    system_prompt = f"{await get_qa_prompt()}\n\n{qa_rules()}"
+    return await _complete(system_prompt, question)
 
 
 async def generate_post_text(item: NewsItem) -> str | None:
