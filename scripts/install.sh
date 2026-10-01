@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Автоматическая установка и настройка TG_NEWS_BOT на чистом Ubuntu.
+# Автоматическая установка и настройка tg-newsdesk на чистом Ubuntu.
 # Запускать из корня уже склонированного репозитория: bash scripts/install.sh
 #
 # Что делает:
@@ -109,7 +109,7 @@ echo "=== 6/6: systemd-сервис ==="
 SERVICE_USER="${SUDO_USER:-root}"
 cat > /etc/systemd/system/tg-news-bot.service <<EOF
 [Unit]
-Description=TG_NEWS_BOT Telegram bot
+Description=tg-newsdesk Telegram bot
 After=network.target postgresql.service
 
 [Service]

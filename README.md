@@ -1,4 +1,4 @@
-# TG_NEWS_BOT
+# tg-newsdesk
 
 Telegram-бот для автопостинга новостей в группу с ручной модерацией. Бот сам
 собирает новости из источников, переписывает их в короткий пост через нейросеть
@@ -32,8 +32,8 @@ Telegram-бот для автопостинга новостей в группу
 интернет, данные хранятся в именованном томе `pgdata`.
 
 ```bash
-git clone https://github.com/GeRRRocks/TG_NEWS_BOT.git
-cd TG_NEWS_BOT
+git clone https://github.com/GeRRRocks/tg-newsdesk.git
+cd tg-newsdesk
 cp .env.example .env             # заполнить значения, см. ниже
 sudo make deploy                 # собрать образы и запустить
 ```
@@ -335,8 +335,8 @@ RESTORE_DB=check make restore FILE=backups/<файл>
 её ключ и токены спрашивает в диалоге) и регистрирует systemd-сервис:
 
 ```bash
-git clone https://github.com/GeRRRocks/TG_NEWS_BOT.git
-cd TG_NEWS_BOT
+git clone https://github.com/GeRRRocks/tg-newsdesk.git
+cd tg-newsdesk
 sudo bash scripts/install.sh
 ```
 

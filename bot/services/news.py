@@ -20,7 +20,7 @@ from bot.services.news_filter import WordFilter
 
 logger = logging.getLogger(__name__)
 
-USER_AGENT = "tg-news-bot/1.0 (+https://github.com/GeRRRocks/TG_NEWS_BOT)"
+USER_AGENT = "tg-newsdesk/1.0 (+https://github.com/GeRRRocks/tg-newsdesk)"
 
 # Потолок на размер одного ответа (после распаковки gzip): страниц качается до
 # пары десятков параллельно, и без лимита один тяжёлый ответ съедает память.
