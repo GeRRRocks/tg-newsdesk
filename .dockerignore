@@ -4,8 +4,8 @@
 .env.*
 .venv
 venv
-__pycache__
-*.py[cod]
+**/__pycache__
+**/*.py[cod]
 *.log
 logs
 scripts
@@ -16,3 +16,4 @@ docker-compose*.yml
 .dockerignore
 .idea
 .vscode
+Makefile

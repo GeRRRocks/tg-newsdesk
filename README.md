@@ -40,24 +40,22 @@ docker compose up -d --build
 [«Переменные окружения»](#переменные-окружения). Пароль базы придумывать не
 нужно, сгенерируй: `openssl rand -hex 24`.
 
-Управление:
+Управление — через `make` (список команд: `make` без аргументов):
 
 ```bash
-docker compose ps                # статус
-docker compose logs -f bot       # логи в реальном времени
-docker compose up -d             # применить изменения в .env
-docker compose up -d --build     # пересобрать после изменения кода
-docker compose down              # остановить (данные в томе сохраняются)
+make status      # состояние контейнеров
+make logs        # логи бота в реальном времени
+make restart     # перезапустить бота, в том числе после правки .env
+make deploy      # пересобрать образ и перезапустить бота после изменения кода
+make update      # забрать свежий код из git и развернуть
+make backup      # дамп базы в backups/
+make psql        # консоль PostgreSQL
+make down        # остановить всё (данные в томе сохраняются)
 ```
 
-После правки `.env` нужен именно `docker compose up -d`: `restart` не
-перечитывает переменные.
-
-Резервная копия базы:
-
-```bash
-docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.sql
-```
+Это короткие обёртки над `docker compose`, им можно пользоваться и напрямую.
+После правки `.env` нужен `make restart` (или `docker compose up -d`):
+`docker compose restart` переменные не перечитывает.
 
 ## Настройка Telegram
 
@@ -76,7 +74,7 @@ docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > b
 6. Отправить `/get_topic_id` прямо внутри нужного топика группы (не в General и
    не в личку) — бот ответит готовыми строками `TARGET_GROUP_CHAT_ID` и
    `TARGET_TOPIC_ID`.
-7. Вписать их в `.env` и применить: `docker compose up -d`.
+7. Вписать их в `.env` и применить: `make restart`.
 
 Если администратор пишет в группе не от личного аккаунта, а анонимно или от
 имени бизнес-аккаунта, в `ADMIN_CHAT_IDS` нужен id именно того аккаунта, от
@@ -234,6 +232,7 @@ bot/
     session.py          # async engine и сессии
 Dockerfile              # образ бота
 docker-compose.yml      # бот + PostgreSQL
+Makefile                # короткие команды управления (make help)
 requirements.txt        # прямые зависимости
 constraints.txt         # точные версии всех пакетов, по ним собирается образ
 scripts/
