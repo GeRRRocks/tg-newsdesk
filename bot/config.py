@@ -1,0 +1,31 @@
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    bot_token: str
+    anthropic_api_key: str
+    # список chat_id админов через запятую (например "111,222") — у каждого
+    # свои права на команды, черновики на модерацию рассылаются всем сразу
+    admin_chat_ids: str
+    target_group_chat_id: int
+    target_topic_id: int | None = None
+    database_url: str
+    timezone: str = "Europe/Moscow"
+    draft_interval_minutes: int = 60
+    # Тематика канала — вставляется в системный промпт Claude. Источники
+    # (RSS/HTML) уже тематически нейтральны, так что смена темы + источников
+    # достаточна, чтобы превратить бота в канал про что угодно.
+    bot_topic: str = "автомобильные новости"
+
+    @property
+    def admin_ids(self) -> set[int]:
+        return {int(chat_id.strip()) for chat_id in self.admin_chat_ids.split(",") if chat_id.strip()}
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
