@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 from aiogram import Bot
+from apscheduler.events import EVENT_JOB_ERROR, JobExecutionEvent
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -29,7 +30,7 @@ from bot.db.models import BotSetting, Draft, PostedNews, Source
 from bot.db.session import async_session_factory
 from bot.handlers.moderation import expire_stale_drafts, send_draft_for_moderation
 from bot.services.ai import PROVIDER_LABELS, generate_post_text, get_active_provider
-from bot.services.alerts import notify_admins
+from bot.services.alerts import notify_admins, report_error
 from bot.services.news import NewsItem, collect_latest_unseen
 from bot.services.news_filter import get_word_filter
 
@@ -43,6 +44,9 @@ WEEKLY_JOB_PREFIX = "generate_draft_weekly_"
 _generation_lock = asyncio.Lock()
 
 EXPIRE_JOB_ID = "expire_stale_drafts"
+
+# Ссылки на фоновые задачи: без них сборщик мусора может прервать задачу на полпути
+_background_tasks: set[asyncio.Task] = set()
 
 # Состояние для уведомлений о сбоях. Живёт в памяти процесса: после
 # перезапуска отсчёт начинается заново.
@@ -295,6 +299,15 @@ async def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     settings = get_settings()
     scheduler = AsyncIOScheduler(timezone=settings.timezone)
     scheduler.start()
+
+    # Исключение внутри job'а APScheduler сам только пишет в лог — до
+    # обработчика ошибок диспетчера оно не доходит.
+    def on_job_error(event: JobExecutionEvent) -> None:
+        task = asyncio.create_task(report_error(bot, event.exception, "задача по расписанию"))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+
+    scheduler.add_listener(on_job_error, EVENT_JOB_ERROR)
     await apply_schedule(scheduler, bot)
     if settings.draft_expire_hours > 0:
         scheduler.add_job(

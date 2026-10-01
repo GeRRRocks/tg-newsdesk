@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1
+
+# Образ для резервных копий: pg_dump той же версии, что и сервер, плюс curl
+# (отправка в S3 и сообщения в Telegram) и tzdata (BACKUP_TIME в TIMEZONE).
+FROM postgres:16-alpine
+RUN apk add --no-cache curl tzdata
+COPY scripts/backup.sh /usr/local/bin/backup.sh
+RUN chmod 755 /usr/local/bin/backup.sh
+ENTRYPOINT []
+CMD ["backup.sh", "loop"]

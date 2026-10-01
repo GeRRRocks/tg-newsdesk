@@ -1,13 +1,12 @@
 # Управление ботом в Docker. Список команд: make (или make help)
 
 COMPOSE := docker compose
-BACKUP_DIR := backups
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart deploy update status logs logs-db shell psql backup
+.PHONY: help up down restart deploy update status logs logs-db logs-backup shell psql backup restore
 
 help: ## Показать список команд
-	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  make %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 up: ## Запустить бота и базу
 	$(COMPOSE) up -d
@@ -40,10 +39,14 @@ shell: ## Открыть консоль внутри контейнера бот
 psql: ## Открыть консоль PostgreSQL
 	$(COMPOSE) exec db sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
 
-backup: ## Сохранить дамп базы в backups/
-	@mkdir -p $(BACKUP_DIR) && chmod 700 $(BACKUP_DIR)
-	@file=$(BACKUP_DIR)/tg_news_bot_$$(date +%F_%H%M%S).sql; \
-	$(COMPOSE) exec -T db sh -c 'pg_dump -U "$$POSTGRES_USER" "$$POSTGRES_DB"' > $$file.tmp \
-		&& mv $$file.tmp $$file && chmod 600 $$file \
-		&& echo "Дамп сохранён: $$file ($$(du -h $$file | cut -f1))" \
-		|| { rm -f $$file.tmp; echo "Не удалось снять дамп" >&2; exit 1; }
+logs-backup: ## Логи резервного копирования
+	$(COMPOSE) logs --tail 50 backup
+
+backup: ## Снять дамп базы сейчас: в backups/ и в S3, если он настроен
+	$(COMPOSE) run --rm -T backup backup.sh once
+
+restore: ## Восстановить базу из дампа: make restore FILE=backups/<файл>
+	@bash scripts/restore.sh "$(FILE)"
+
+# Локальные цели (в git не входят), например make test
+-include Makefile.local

@@ -59,8 +59,56 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Ежедневный дамп базы в ./backups и, если задан S3_BUCKET, в S3 — см.
+  # scripts/backup.sh. Получает только те переменные, что ему нужны.
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      TZ: ${TIMEZONE:-Europe/Moscow}
+      BACKUP_TIME: ${BACKUP_TIME:-03:30}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      # для сообщений админам, если копия не удалась
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      ADMIN_CHAT_IDS: ${ADMIN_CHAT_IDS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - egress
+      - backend
+    volumes:
+      - ./backups:/backups
+    # root — владелец ./backups на хосте; прав сверх обычного пользователя нет (cap_drop)
+    user: "0:0"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
 networks:
-  # Выход в интернет (Telegram, Anthropic, источники новостей) — только у бота
+  # Выход в интернет: бот (Telegram, нейросети, источники) и backup (S3, Telegram)
   egress:
   # Изолированная сеть без выхода наружу — только бот <-> база
   backend:
