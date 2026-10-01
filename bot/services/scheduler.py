@@ -12,6 +12,7 @@ apply_schedule() — единая точка входа: перечитывае�
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import NamedTuple
 
@@ -32,6 +33,10 @@ logger = logging.getLogger(__name__)
 
 DRAFT_JOB_ID = "generate_draft"
 WEEKLY_JOB_PREFIX = "generate_draft_weekly_"
+
+# Один цикл генерации за раз: параллельные запуски (кнопка + расписание или
+# два нажатия подряд) выбирали бы одну и ту же новость и дважды платили Claude.
+_generation_lock = asyncio.Lock()
 
 # Порядок фиксирован — используется и для сортировки дней в UI/cron.
 WEEKDAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -188,6 +193,14 @@ async def generate_draft_job(bot: Bot) -> str:
     Используется и планировщиком (по расписанию), и командой /generate_now
     (по требованию) — возвращаемый статус нужен второму, чтобы сразу
     ответить админу, что произошло."""
+    if _generation_lock.locked():
+        logger.info("Генерация уже идёт, пропускаю параллельный запуск")
+        return "busy"
+    async with _generation_lock:
+        return await _generate_draft(bot)
+
+
+async def _generate_draft(bot: Bot) -> str:
     item = await collect_next_draft_candidate()
     if item is None:
         return "no_news"

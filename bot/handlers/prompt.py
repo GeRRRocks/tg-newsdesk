@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import html
+
 from aiogram import F, Router
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
@@ -50,9 +52,11 @@ def _prompt_keyboard() -> InlineKeyboardMarkup:
 
 
 def _preview(prompt: str) -> str:
+    """Обрезает промпт под лимит сообщения и экранирует его: у бота
+    parse_mode=HTML, и символ < в тексте промпта иначе ломал бы отправку."""
     if len(prompt) > _PROMPT_PREVIEW_LIMIT:
-        return prompt[: _PROMPT_PREVIEW_LIMIT - 1] + "…"
-    return prompt
+        prompt = prompt[: _PROMPT_PREVIEW_LIMIT - 1] + "…"
+    return html.escape(prompt, quote=False)
 
 
 @router.callback_query(MenuCallback.filter(F.action == "prompt"))

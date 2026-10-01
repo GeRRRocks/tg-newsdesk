@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import html
+
 from aiogram import F, Router
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
@@ -113,9 +115,10 @@ def _sources_list_keyboard(sources: list[Source]) -> InlineKeyboardMarkup:
 
 def _source_detail_text(source: Source) -> str:
     status = "включён ▶️" if source.is_active else "выключен ⏸"
-    name_line = f"\nНазвание: {source.name}" if source.name else ""
+    # Название и URL вводит админ — экранируем, т.к. у бота parse_mode=HTML
+    name_line = f"\nНазвание: {html.escape(source.name, quote=False)}" if source.name else ""
     type_label = "RSS-фид" if source.source_type == SourceType.RSS else "HTML-страница"
-    return f"Тип: {type_label}{name_line}\nURL: {source.url}\nСтатус: {status}"
+    return f"Тип: {type_label}{name_line}\nURL: {html.escape(source.url, quote=False)}\nСтатус: {status}"
 
 
 def _source_detail_keyboard(source: Source) -> InlineKeyboardMarkup:
@@ -261,9 +264,10 @@ async def _create_source(target: Message, url: str, source_type: str, name: str 
             return
 
     type_label = "RSS-фид" if source_type == SourceType.RSS.value else "HTML-страница"
-    name_line = f"\nНазвание: {name}" if name else ""
+    name_line = f"\nНазвание: {html.escape(name, quote=False)}" if name else ""
     await target.answer(
-        f"✅ Источник добавлен (id={source.id})\nТип: {type_label}\nURL: {url}{name_line}",
+        f"✅ Источник добавлен (id={source.id})\nТип: {type_label}\n"
+        f"URL: {html.escape(url, quote=False)}{name_line}",
         reply_markup=main_menu_keyboard(),
     )
 

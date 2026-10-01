@@ -178,7 +178,8 @@ async def _lock_news(session: AsyncSession, news_id: int) -> PostedNews | None:
 
 
 def _actor_name(query: CallbackQuery) -> str:
-    return query.from_user.full_name if query.from_user else "неизвестно"
+    name = query.from_user.full_name if query.from_user else "неизвестно"
+    return html.escape(name, quote=False)
 
 
 @router.callback_query(DraftCallback.filter(F.action == "approve"))

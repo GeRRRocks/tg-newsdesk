@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
 
@@ -16,11 +18,24 @@ _STATUS_MESSAGES = {
     "sent": "✅ Черновик готов и отправлен на модерацию выше.",
     "no_news": "Нет новых новостей ни в одном включённом источнике.",
     "generation_failed": "⚠️ Claude не смог сгенерировать текст — попробуй ещё раз позже.",
+    "busy": "⏳ Черновик уже генерируется — дождись его.",
 }
+
+# Пауза между ручными запусками, общая для всех админов: каждый запуск — это
+# платный запрос к Claude, а случайные повторные нажатия плодят черновики.
+_COOLDOWN_SECONDS = 60
+_last_manual_run = 0.0
 
 
 @router.callback_query(MenuCallback.filter(F.action == "generate_now"))
 async def cb_generate_now(query: CallbackQuery, bot: Bot) -> None:
+    global _last_manual_run
+    wait = _COOLDOWN_SECONDS - (time.monotonic() - _last_manual_run)
+    if wait > 0:
+        await query.answer(f"Подожди ещё {int(wait) + 1} сек.", show_alert=True)
+        return
+    _last_manual_run = time.monotonic()
+
     await query.answer()
     status_message = None
     if query.message is not None:
