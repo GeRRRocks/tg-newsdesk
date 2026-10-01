@@ -3,12 +3,12 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart deploy update status logs logs-db logs-backup shell psql backup restore
+.PHONY: help up down restart deploy update status logs logs-db logs-backup shell psql backup restore swap
 
 help: ## Показать список команд
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  make %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-up: ## Запустить бота и базу
+up: swap ## Запустить бота и базу
 	$(COMPOSE) up -d
 
 down: ## Остановить всё (данные в базе сохраняются)
@@ -17,10 +17,10 @@ down: ## Остановить всё (данные в базе сохраняю�
 restart: ## Перезапустить бота (подхватывает изменения в .env)
 	$(COMPOSE) up -d --force-recreate bot
 
-deploy: ## Пересобрать образ и перезапустить бота (после изменения кода)
+deploy: swap ## Пересобрать образ и перезапустить бота (после изменения кода)
 	$(COMPOSE) up -d --build
 
-update: ## Забрать свежий код из git и развернуть
+update: swap ## Забрать свежий код из git и развернуть
 	git pull --ff-only
 	$(COMPOSE) up -d --build
 
@@ -47,6 +47,9 @@ backup: ## Снять дамп базы сейчас: в backups/ и в S3, ес
 
 restore: ## Восстановить базу из дампа: make restore FILE=backups/<файл>
 	@bash scripts/restore.sh "$(FILE)"
+
+swap: ## Создать файл подкачки, если памяти мало и его ещё нет
+	@bash scripts/setup-swap.sh
 
 # Локальные цели (в git не входят), например make test
 -include Makefile.local

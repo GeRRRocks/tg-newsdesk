@@ -35,8 +35,16 @@ Telegram-бот для автопостинга новостей в группу
 git clone https://github.com/GeRRRocks/TG_NEWS_BOT.git
 cd TG_NEWS_BOT
 cp .env.example .env             # заполнить значения, см. ниже
-docker compose up -d --build
+sudo make deploy                 # собрать образы и запустить
 ```
+
+`make deploy`, `make up` и `make update` перед запуском проверяют память сервера:
+если её меньше 4 ГБ и подкачки нет, создаётся файл подкачки `/swapfile` на
+2 ГБ (`scripts/setup-swap.sh`) — без него при нехватке памяти система просто
+убивает процессы. Для этого шага нужен root; без него команда подскажет, что
+запустить, и продолжит развёртывание. Размер меняется переменной
+`SWAP_SIZE_MB`. Если запускать `docker compose up -d --build` напрямую,
+подкачка не создаётся.
 
 Что вписать в `.env` и где это взять — в разделах
 [«Настройка Telegram»](#настройка-telegram),
@@ -322,7 +330,8 @@ RESTORE_DB=check make restore FILE=backups/<файл>
 
 ### Автоматически (Ubuntu, systemd)
 
-Скрипт ставит Python и PostgreSQL, создаёт venv, базу и `.env` (нейросеть,
+Скрипт ставит Python и PostgreSQL, при малом объёме памяти создаёт файл
+подкачки, создаёт venv, базу и `.env` (нейросеть,
 её ключ и токены спрашивает в диалоге) и регистрирует systemd-сервис:
 
 ```bash

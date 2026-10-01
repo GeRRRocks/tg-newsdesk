@@ -50,6 +50,10 @@ class SkipNameCallback(CallbackData, prefix="srcskipname"):
     pass
 
 
+# Лимиты колонок: более длинное значение база отклонит
+_MAX_URL_LEN = Source.__table__.c.url.type.length
+_MAX_NAME_LEN = Source.__table__.c.name.type.length
+
 _TYPE_LABELS = {
     SourceType.RSS: "RSS-фид",
     SourceType.HTML: "HTML-страница",
@@ -273,6 +277,12 @@ async def add_source_got_url(message: Message, state: FSMContext) -> None:
             reply_markup=_skip_name_keyboard(),
         )
         return
+    if len(url) > _MAX_URL_LEN:
+        await message.answer(
+            f"Адрес слишком длинный: {len(url)} символов при лимите {_MAX_URL_LEN}. Пришли ещё раз.",
+            reply_markup=_cancel_keyboard(),
+        )
+        return
     if not url.startswith(("http://", "https://")):
         await message.answer(
             "Нужен URL с http:// или https:// либо Telegram-канал (@имя или t.me/имя). Пришли ещё раз.",
@@ -283,7 +293,7 @@ async def add_source_got_url(message: Message, state: FSMContext) -> None:
     # Проверка ходит на сайт и занимает несколько секунд — показываем статус
     status = await message.answer("🔎 Проверяю адрес и ищу RSS…")
     detected = await detect_source(url)
-    if detected is None:
+    if detected is None or len(detected.url) > _MAX_URL_LEN:
         await state.update_data(url=url)
         await state.set_state(AddSourceStates.waiting_type)
         await status.edit_text(
@@ -341,9 +351,16 @@ async def _create_source(target: Message, url: str, source_type: str, name: str 
 
 @router.message(AddSourceStates.waiting_name)
 async def add_source_got_name(message: Message, state: FSMContext) -> None:
+    name = (message.text or "").strip() or None
+    if name is not None and len(name) > _MAX_NAME_LEN:
+        # состояние не сбрасываем: админ пришлёт название короче
+        await message.answer(
+            f"Название слишком длинное: {len(name)} символов при лимите {_MAX_NAME_LEN}. Пришли короче.",
+            reply_markup=_skip_name_keyboard(),
+        )
+        return
     data = await state.get_data()
     await state.clear()
-    name = (message.text or "").strip() or None
     await _create_source(message, url=data["url"], source_type=data["source_type"], name=name)
 
 

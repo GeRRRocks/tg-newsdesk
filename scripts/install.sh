@@ -4,6 +4,7 @@
 #
 # Что делает:
 #  - ставит системные зависимости (python3-venv, postgresql)
+#  - создаёт файл подкачки, если памяти на сервере мало (scripts/setup-swap.sh)
 #  - создаёт venv и ставит зависимости из requirements.txt
 #  - поднимает PostgreSQL-базу и пользователя под бота
 #  - интерактивно спрашивает токены/тематику и пишет .env
@@ -23,6 +24,7 @@ fi
 echo "=== 1/6: системные зависимости ==="
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip postgresql postgresql-contrib
+bash "$REPO_DIR/scripts/setup-swap.sh"
 
 echo "=== 2/6: виртуальное окружение и зависимости Python ==="
 python3 -m venv "$REPO_DIR/.venv"
