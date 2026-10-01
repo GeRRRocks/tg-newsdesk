@@ -14,6 +14,8 @@ class NewsStatus(str, enum.Enum):
     PENDING = "pending"
     POSTED = "posted"
     REJECTED = "rejected"
+    # черновик закрыт автоматически: на него не ответили за DRAFT_EXPIRE_HOURS
+    EXPIRED = "expired"
 
 
 class SourceType(str, enum.Enum):
@@ -60,6 +62,8 @@ class PostedNews(Base):
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     guid: Mapped[str | None] = mapped_column(String(512), nullable=True)
     title: Mapped[str] = mapped_column(String(1024), nullable=False)
+    # Анонс из источника — нужен, чтобы сгенерировать другой вариант текста
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[NewsStatus] = mapped_column(default=NewsStatus.PENDING)
     # timezone=True: published_at/posted_at всегда приходят как aware UTC-datetime
@@ -148,6 +152,10 @@ class BotSetting(Base):
     weekly_times: Mapped[str] = mapped_column(String(64), default="", server_default="")
     # Нейросеть, выбранная в меню «🤖 Нейросеть». NULL = AI_PROVIDER из .env
     ai_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Фильтр новостей из меню «🚫 Фильтр»: слова через запятую, в нижнем
+    # регистре. NULL/пусто = фильтр не задан. См. bot/services/news_filter.py
+    filter_stop_words: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filter_required_words: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:
         return f"<BotSetting draft_interval_minutes={self.draft_interval_minutes}>"

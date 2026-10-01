@@ -13,7 +13,9 @@ apply_schedule() — единая точка входа: перечитывае�
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 from aiogram import Bot
@@ -25,9 +27,11 @@ from sqlalchemy import select
 from bot.config import get_settings
 from bot.db.models import BotSetting, Draft, PostedNews, Source
 from bot.db.session import async_session_factory
-from bot.handlers.moderation import send_draft_for_moderation
-from bot.services.ai import generate_post_text
+from bot.handlers.moderation import expire_stale_drafts, send_draft_for_moderation
+from bot.services.ai import PROVIDER_LABELS, generate_post_text, get_active_provider
+from bot.services.alerts import notify_admins
 from bot.services.news import NewsItem, collect_latest_unseen
+from bot.services.news_filter import get_word_filter
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,14 @@ WEEKLY_JOB_PREFIX = "generate_draft_weekly_"
 # Один цикл генерации за раз: параллельные запуски (кнопка + расписание или
 # два нажатия подряд) выбирали бы одну и ту же новость и дважды платили за генерацию.
 _generation_lock = asyncio.Lock()
+
+EXPIRE_JOB_ID = "expire_stale_drafts"
+
+# Состояние для уведомлений о сбоях. Живёт в памяти процесса: после
+# перезапуска отсчёт начинается заново.
+SOURCE_FAIL_ALERT_AFTER = 3
+_source_fail_streak: dict[int, int] = {}
+_ai_failing = False
 
 # Порядок фиксирован — используется и для сортировки дней в UI/cron.
 WEEKDAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -95,7 +107,7 @@ def _add_interval_job(scheduler: AsyncIOScheduler, minutes: int, bot: Bot) -> No
     scheduler.add_job(
         generate_draft_job,
         trigger=IntervalTrigger(minutes=minutes),
-        args=[bot],
+        args=[bot, True],
         id=DRAFT_JOB_ID,
         max_instances=1,
         coalesce=True,
@@ -117,7 +129,7 @@ def _add_weekly_jobs(scheduler: AsyncIOScheduler, days: list[str], times: list[s
                 # реально срабатывал в полдень по Москве.
                 timezone=scheduler.timezone,
             ),
-            args=[bot],
+            args=[bot, True],
             id=f"{WEEKLY_JOB_PREFIX}{index}",
             max_instances=1,
             coalesce=True,
@@ -170,10 +182,29 @@ async def remove_weekly_time(time_str: str, scheduler: AsyncIOScheduler, bot: Bo
     await apply_schedule(scheduler, bot)
 
 
-async def collect_next_draft_candidate() -> NewsItem | None:
+async def _track_source_failures(bot: Bot, sources: list[Source], failed: list[Source]) -> None:
+    """Считает запуски подряд, в которых источник не открылся или не отдал ни
+    одной новости, и на SOURCE_FAIL_ALERT_AFTER-м один раз пишет админам."""
+    failed_ids = {source.id for source in failed}
+    for source in sources:
+        if source.id not in failed_ids:
+            _source_fail_streak.pop(source.id, None)
+            continue
+        streak = _source_fail_streak.get(source.id, 0) + 1
+        _source_fail_streak[source.id] = streak
+        if streak == SOURCE_FAIL_ALERT_AFTER:
+            name = html.escape(source.name or source.url, quote=False)
+            await notify_admins(
+                bot,
+                f"⚠️ Источник «{name}» не отдаёт новости уже {streak} запуска подряд. "
+                "Проверь, открывается ли он, или выключи его в «📋 Источники».",
+            )
+
+
+async def collect_next_draft_candidate(bot: Bot) -> NewsItem | None:
     """Опрашивает только включённые источники (Source.is_active) и возвращает
     самую свежую новость, которой ещё нет среди уже увиденных — опубликованных
-    или отклонённых (posted_news)."""
+    или отклонённых (posted_news) — и которая проходит фильтр по словам."""
     async with async_session_factory() as session:
         sources = (
             await session.execute(select(Source).where(Source.is_active.is_(True)))
@@ -182,26 +213,48 @@ async def collect_next_draft_candidate() -> NewsItem | None:
             (await session.execute(select(PostedNews.url))).scalars().all()
         )
 
-    return await collect_latest_unseen(sources, seen_urls)
+    result = await collect_latest_unseen(sources, seen_urls, await get_word_filter())
+    await _track_source_failures(bot, sources, result.failed_sources)
+    return result.item
 
 
-async def generate_draft_job(bot: Bot) -> str:
+async def generate_draft_job(bot: Bot, scheduled: bool = False) -> str:
     """Один цикл: собрать новость -> сгенерировать черновик через нейросеть ->
     отправить админам на модерацию. Если генерация не удалась, запись о
     новости откатывается — её подхватит следующий запуск.
 
-    Используется и планировщиком (по расписанию), и командой /generate_now
-    (по требованию) — возвращаемый статус нужен второму, чтобы сразу
-    ответить админу, что произошло."""
+    Используется и планировщиком (scheduled=True), и кнопкой «⚡ Сгенерировать»
+    — возвращаемый статус нужен второй, чтобы сразу ответить админу, что
+    произошло. О сбое нейросети при запуске по расписанию админы узнают из
+    отдельного сообщения: при ручном запуске ответ и так виден сразу."""
     if _generation_lock.locked():
         logger.info("Генерация уже идёт, пропускаю параллельный запуск")
         return "busy"
     async with _generation_lock:
-        return await _generate_draft(bot)
+        status = await _generate_draft(bot)
+    await _track_ai_failure(bot, status, scheduled)
+    return status
+
+
+async def _track_ai_failure(bot: Bot, status: str, scheduled: bool) -> None:
+    """Одно сообщение на серию сбоев и одно — когда генерация восстановилась."""
+    global _ai_failing
+    if status == "generation_failed":
+        if scheduled and not _ai_failing:
+            _ai_failing = True
+            label = PROVIDER_LABELS[await get_active_provider()]
+            await notify_admins(
+                bot,
+                f"⚠️ Нейросеть {label} не смогла написать черновик по расписанию. "
+                "Попробую снова в следующий запуск; сменить нейросеть можно в «🤖 Нейросеть».",
+            )
+    elif status == "sent" and _ai_failing:
+        _ai_failing = False
+        await notify_admins(bot, "✅ Генерация черновиков снова работает.")
 
 
 async def _generate_draft(bot: Bot) -> str:
-    item = await collect_next_draft_candidate()
+    item = await collect_next_draft_candidate(bot)
     if item is None:
         return "no_news"
 
@@ -211,6 +264,7 @@ async def _generate_draft(bot: Bot) -> str:
             url=item.url,
             guid=item.guid,
             title=item.title,
+            summary=item.summary or None,
             content_hash=item.content_hash,
             published_at=item.published_at,
         )
@@ -242,4 +296,15 @@ async def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=settings.timezone)
     scheduler.start()
     await apply_schedule(scheduler, bot)
+    if settings.draft_expire_hours > 0:
+        scheduler.add_job(
+            expire_stale_drafts,
+            trigger=IntervalTrigger(hours=1),
+            args=[bot, settings.draft_expire_hours],
+            id=EXPIRE_JOB_ID,
+            max_instances=1,
+            coalesce=True,
+            # первый проход — вскоре после старта, а не через час
+            next_run_time=datetime.now(timezone.utc) + timedelta(minutes=1),
+        )
     return scheduler

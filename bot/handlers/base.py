@@ -54,6 +54,9 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
+                    text="🚫 Фильтр", callback_data=MenuCallback(action="filter").pack()
+                ),
+                InlineKeyboardButton(
                     text="🏓 Пинг", callback_data=MenuCallback(action="ping").pack()
                 ),
             ],

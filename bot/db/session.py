@@ -19,9 +19,15 @@ async def init_models() -> None:
         await conn.run_sync(Base.metadata.create_all)
         # create_all не добавляет колонки в уже существующие таблицы, а
         # миграций нет — новые колонки дописываются здесь, идемпотентно.
-        await conn.execute(
-            text("ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_provider VARCHAR(16)")
-        )
+        for statement in (
+            "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_provider VARCHAR(16)",
+            "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS filter_stop_words TEXT",
+            "ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS filter_required_words TEXT",
+            "ALTER TABLE posted_news ADD COLUMN IF NOT EXISTS summary TEXT",
+            # Новое значение нативного enum; метка — .name, см. models.py
+            "ALTER TYPE newsstatus ADD VALUE IF NOT EXISTS 'EXPIRED'",
+        ):
+            await conn.execute(text(statement))
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

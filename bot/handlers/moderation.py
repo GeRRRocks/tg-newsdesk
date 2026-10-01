@@ -1,34 +1,46 @@
-"""Модерация черновиков: карточка админу с кнопками ✅/❌ и публикация в группу."""
+"""Модерация черновиков: карточка админу с кнопками, публикация в группу,
+замена текста (другой вариант от нейросети или свой) и автозакрытие
+черновиков, на которые никто не ответил."""
 
 from __future__ import annotations
 
 import html
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import select
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.db.models import Draft, DraftNotification, NewsStatus, PostedNews
 from bot.db.session import async_session_factory
 from bot.filters.admin import IsAdmin
+from bot.services.ai import generate_text
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="moderation")
+router.message.filter(IsAdmin())
 router.callback_query.filter(IsAdmin())
 
 # Лимит Telegram на длину caption у фото-сообщения
 _CAPTION_LIMIT = 1024
+# Свой текст черновика: запас до лимита сообщения (4096) под ссылку на источник
+_EDIT_TEXT_LIMIT = 3500
+
+# Новости, для которых прямо сейчас пишется другой вариант — чтобы повторное
+# нажатие (в том числе вторым админом) не запускало второй платный запрос.
+_regenerating: set[int] = set()
 
 
 class DraftCallback(CallbackData, prefix="draft"):
-    action: str  # "approve" | "reject"
+    action: str  # "approve" | "reject" | "regen" | "edit"
     news_id: int
 
 
@@ -44,9 +56,27 @@ def _keyboard(news_id: int) -> InlineKeyboardMarkup:
                     text="❌ Отклонить",
                     callback_data=DraftCallback(action="reject", news_id=news_id).pack(),
                 ),
-            ]
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Другой вариант",
+                    callback_data=DraftCallback(action="regen", news_id=news_id).pack(),
+                ),
+                InlineKeyboardButton(
+                    text="✏️ Править",
+                    callback_data=DraftCallback(action="edit", news_id=news_id).pack(),
+                ),
+            ],
         ]
     )
+
+
+class EditDraftStates(StatesGroup):
+    waiting_text = State()
+
+
+class CancelEditCallback(CallbackData, prefix="draftedit_cancel"):
+    pass
 
 
 def _format_admin_text(draft: Draft) -> str:
@@ -237,3 +267,169 @@ async def cb_reject(query: CallbackQuery, callback_data: DraftCallback, bot: Bot
 
     await query.answer("Отклонено ❌")
     await _resolve_notifications(bot, draft_id, f"❌ Черновик отклонён ({_actor_name(query)}).")
+
+
+async def _replace_cards(bot: Bot, news_id: int, draft_id: int, note: str) -> None:
+    """После замены текста черновика: закрывает старые карточки у всех админов
+    и рассылает новые. Править старые на месте нельзя надёжно — карточка могла
+    уйти фото с подписью, а новый текст в лимит подписи может не влезть."""
+    await _resolve_notifications(bot, draft_id, note)
+    async with async_session_factory() as session:
+        await session.execute(
+            delete(DraftNotification).where(DraftNotification.draft_id == draft_id)
+        )
+        await session.commit()
+    await send_draft_for_moderation(bot, news_id)
+
+
+async def _set_draft_text(news_id: int, text: str) -> int | None:
+    """Под блокировкой строки заменяет текст черновика, если он всё ещё ждёт
+    решения. Возвращает id черновика или None, если его уже обработали."""
+    async with async_session_factory() as session:
+        news = await _lock_news(session, news_id)
+        draft = (
+            await session.execute(select(Draft).where(Draft.news_id == news_id))
+        ).scalar_one_or_none()
+        if news is None or draft is None or news.status != NewsStatus.PENDING:
+            return None
+        draft.text = text
+        await session.commit()
+        return draft.id
+
+
+async def _pending_draft(news_id: int) -> tuple[PostedNews, Draft] | None:
+    async with async_session_factory() as session:
+        news = await session.get(PostedNews, news_id)
+        draft = (
+            await session.execute(select(Draft).where(Draft.news_id == news_id))
+        ).scalar_one_or_none()
+    if news is None or draft is None or news.status != NewsStatus.PENDING:
+        return None
+    return news, draft
+
+
+@router.callback_query(DraftCallback.filter(F.action == "regen"))
+async def cb_regenerate(query: CallbackQuery, callback_data: DraftCallback, bot: Bot) -> None:
+    news_id = callback_data.news_id
+    if news_id in _regenerating:
+        await query.answer("Другой вариант уже пишется — подожди.", show_alert=True)
+        return
+    pending = await _pending_draft(news_id)
+    if pending is None:
+        await query.answer("Уже обработано.", show_alert=True)
+        return
+    news, draft = pending
+
+    _regenerating.add(news_id)
+    try:
+        await query.answer("Пишу другой вариант…")
+        # Запрос к нейросети идёт без блокировки строки: он длится секунды,
+        # и держать на это время FOR UPDATE значило бы подвесить остальные кнопки.
+        text = await generate_text(news.title, news.summary, previous=draft.text)
+        if text is None:
+            await bot.send_message(
+                chat_id=query.from_user.id,
+                text="⚠️ Нейросеть не смогла написать другой вариант — попробуй позже.",
+            )
+            return
+        draft_id = await _set_draft_text(news_id, text)
+        if draft_id is None:
+            # пока шла генерация, черновик опубликовали или отклонили
+            return
+        await _replace_cards(
+            bot, news_id, draft_id, f"🔄 Заменён другим вариантом ({_actor_name(query)})."
+        )
+    finally:
+        _regenerating.discard(news_id)
+
+
+@router.callback_query(DraftCallback.filter(F.action == "edit"))
+async def cb_edit_start(
+    query: CallbackQuery, callback_data: DraftCallback, state: FSMContext
+) -> None:
+    if await _pending_draft(callback_data.news_id) is None:
+        await query.answer("Уже обработано.", show_alert=True)
+        return
+    await state.set_state(EditDraftStates.waiting_text)
+    await state.update_data(news_id=callback_data.news_id)
+    if query.message is not None:
+        await query.message.answer(
+            "Пришли новый текст поста одним сообщением — он заменит текущий. "
+            "Текст публикуется как есть, без разметки; ссылку на источник добавлять не нужно.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="❌ Отмена", callback_data=CancelEditCallback().pack()
+                        )
+                    ]
+                ]
+            ),
+        )
+    await query.answer()
+
+
+@router.callback_query(CancelEditCallback.filter())
+async def cb_edit_cancel(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    if query.message is not None:
+        await query.message.edit_text("Правка отменена — черновик остался прежним.")
+    await query.answer()
+
+
+@router.message(EditDraftStates.waiting_text)
+async def msg_edit_text(message: Message, state: FSMContext, bot: Bot) -> None:
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer("Нужен текст. Пришли его одним сообщением или нажми «Отмена».")
+        return
+    if len(text) > _EDIT_TEXT_LIMIT:
+        await message.answer(
+            f"Слишком длинно: {len(text)} символов при лимите {_EDIT_TEXT_LIMIT}. Сократи и пришли ещё раз."
+        )
+        return
+
+    news_id = (await state.get_data()).get("news_id")
+    await state.clear()
+    draft_id = await _set_draft_text(news_id, text) if news_id is not None else None
+    if draft_id is None:
+        await message.answer("Этот черновик уже обработан — текст не изменён.")
+        return
+
+    name = html.escape(message.from_user.full_name, quote=False) if message.from_user else "неизвестно"
+    await _replace_cards(bot, news_id, draft_id, f"✏️ Текст заменён ({name}).")
+
+
+async def expire_stale_drafts(bot: Bot, hours: int) -> int:
+    """Закрывает черновики, на которые не ответили за hours часов: статус
+    EXPIRED (а не REJECTED — это не решение админа и не должно портить
+    статистику источников) и пометка под карточками. Возвращает их число."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    async with async_session_factory() as session:
+        stale_ids = (
+            await session.execute(
+                select(PostedNews.id).where(
+                    PostedNews.status == NewsStatus.PENDING, PostedNews.created_at < cutoff
+                )
+            )
+        ).scalars().all()
+
+    expired = 0
+    for news_id in stale_ids:
+        async with async_session_factory() as session:
+            news = await _lock_news(session, news_id)
+            if news is None or news.status != NewsStatus.PENDING:
+                continue
+            draft_id = (
+                await session.execute(select(Draft.id).where(Draft.news_id == news_id))
+            ).scalar_one_or_none()
+            news.status = NewsStatus.EXPIRED
+            await session.commit()
+        expired += 1
+        if draft_id is not None:
+            await _resolve_notifications(
+                bot, draft_id, f"⌛ Черновик закрыт: без ответа {hours} ч."
+            )
+    if expired:
+        logger.info("Автозакрытие: закрыто черновиков — %s", expired)
+    return expired

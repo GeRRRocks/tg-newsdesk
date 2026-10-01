@@ -11,10 +11,11 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.db.models import Source, SourceType
+from bot.db.models import NewsStatus, PostedNews, Source, SourceType
 from bot.db.session import async_session_factory
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback, main_menu_keyboard
@@ -113,12 +114,34 @@ def _sources_list_keyboard(sources: list[Source]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _source_detail_text(source: Source) -> str:
+def _stats_line(counts: dict[NewsStatus, int]) -> str:
+    line = (
+        f"Опубликовано {counts.get(NewsStatus.POSTED, 0)} · "
+        f"Отклонено {counts.get(NewsStatus.REJECTED, 0)} · "
+        f"Ждут {counts.get(NewsStatus.PENDING, 0)}"
+    )
+    expired = counts.get(NewsStatus.EXPIRED, 0)
+    return f"{line} · Истекло {expired}" if expired else line
+
+
+async def _status_counts(session: AsyncSession, source_id: int | None = None) -> dict[NewsStatus, int]:
+    """Сколько черновиков в каждом статусе: по одному источнику или по всем
+    (включая новости уже удалённых источников)."""
+    stmt = select(PostedNews.status, func.count()).group_by(PostedNews.status)
+    if source_id is not None:
+        stmt = stmt.where(PostedNews.source_id == source_id)
+    return {status: count for status, count in (await session.execute(stmt)).all()}
+
+
+def _source_detail_text(source: Source, counts: dict[NewsStatus, int]) -> str:
     status = "включён ▶️" if source.is_active else "выключен ⏸"
     # Название и URL вводит админ — экранируем, т.к. у бота parse_mode=HTML
     name_line = f"\nНазвание: {html.escape(source.name, quote=False)}" if source.name else ""
     type_label = "RSS-фид" if source.source_type == SourceType.RSS else "HTML-страница"
-    return f"Тип: {type_label}{name_line}\nURL: {html.escape(source.url, quote=False)}\nСтатус: {status}"
+    return (
+        f"Тип: {type_label}{name_line}\nURL: {html.escape(source.url, quote=False)}\n"
+        f"Статус: {status}\n\n📊 Черновики: {_stats_line(counts)}"
+    )
 
 
 def _source_detail_keyboard(source: Source) -> InlineKeyboardMarkup:
@@ -145,12 +168,14 @@ def _source_detail_keyboard(source: Source) -> InlineKeyboardMarkup:
 async def _render_sources_list(query: CallbackQuery) -> None:
     async with async_session_factory() as session:
         sources = (await session.execute(select(Source).order_by(Source.id))).scalars().all()
+        counts = await _status_counts(session)
 
     if query.message is None:
         return
     if sources:
         await query.message.edit_text(
-            "📋 Источники (нажми, чтобы открыть):", reply_markup=_sources_list_keyboard(sources)
+            f"📋 Источники (нажми, чтобы открыть):\n\n📊 Всего черновиков: {_stats_line(counts)}",
+            reply_markup=_sources_list_keyboard(sources),
         )
     else:
         await query.message.edit_text("Источников пока нет.", reply_markup=main_menu_keyboard())
@@ -166,6 +191,7 @@ async def cb_list_sources(query: CallbackQuery) -> None:
 async def cb_view_source(query: CallbackQuery, callback_data: SourceCallback) -> None:
     async with async_session_factory() as session:
         source = await session.get(Source, callback_data.source_id)
+        counts = await _status_counts(session, callback_data.source_id)
 
     if source is None:
         await query.answer("Источник не найден — возможно, уже удалён.", show_alert=True)
@@ -173,7 +199,9 @@ async def cb_view_source(query: CallbackQuery, callback_data: SourceCallback) ->
         return
 
     if query.message is not None:
-        await query.message.edit_text(_source_detail_text(source), reply_markup=_source_detail_keyboard(source))
+        await query.message.edit_text(
+            _source_detail_text(source, counts), reply_markup=_source_detail_keyboard(source)
+        )
     await query.answer()
 
 
@@ -189,7 +217,7 @@ async def cb_toggle_source(query: CallbackQuery, callback_data: SourceCallback) 
         await session.commit()
         await session.refresh(source)
         is_active = source.is_active
-        text = _source_detail_text(source)
+        text = _source_detail_text(source, await _status_counts(session, source.id))
         keyboard = _source_detail_keyboard(source)
 
     if query.message is not None:

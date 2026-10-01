@@ -229,17 +229,25 @@ async def _generate_openai_compatible(
     return content.strip() or None
 
 
-async def generate_post_text(item: NewsItem) -> str | None:
+async def generate_text(title: str, summary: str | None, previous: str | None = None) -> str | None:
     """Переписывает новость в стиль Telegram-поста через выбранную нейросеть.
+    previous — уже показанный админу вариант: нейросеть просят написать иначе.
     Считается некритичной операцией: при отказе API, лимите запросов или
-    сетевой ошибке возвращает None, не роняя цикл планировщика — эту новость
-    подхватит следующий запуск."""
+    сетевой ошибке возвращает None, не роняя цикл планировщика."""
     provider = await get_active_provider()
     system_prompt = await get_system_prompt()
-    user_content = (
-        f"Заголовок: {item.title}\n\nТекст анонса: {item.summary or '(отсутствует)'}"
-    )
+    user_content = f"Заголовок: {title}\n\nТекст анонса: {summary or '(отсутствует)'}"
+    if previous:
+        user_content += (
+            "\n\nПредыдущий вариант поста не подошёл — напиши другой, с иной "
+            f"подачей и формулировками:\n{previous}"
+        )
 
     if provider == "anthropic":
         return await _generate_anthropic(system_prompt, user_content)
     return await _generate_openai_compatible(provider, system_prompt, user_content)
+
+
+async def generate_post_text(item: NewsItem) -> str | None:
+    """Текст поста для свежей новости; None — эту новость подхватит следующий запуск."""
+    return await generate_text(item.title, item.summary)

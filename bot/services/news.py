@@ -9,12 +9,14 @@ import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import NamedTuple
 from urllib.parse import urlparse, urlunparse
 
 import feedparser
 import httpx
 
 from bot.db.models import Draft, PostedNews, Source, SourceType
+from bot.services.news_filter import WordFilter
 
 logger = logging.getLogger(__name__)
 
@@ -141,11 +143,13 @@ def _fit_to_columns(item: NewsItem) -> NewsItem | None:
     return item
 
 
-async def fetch_source_items(client: httpx.AsyncClient, source: Source) -> list[NewsItem]:
+async def fetch_source_items(
+    client: httpx.AsyncClient, source: Source
+) -> list[NewsItem] | None:
     """Скачивает и парсит один источник. Для RSS — сам фид, для обычной страницы
     (source.source_type == HTML) — делегирует в bot.services.scraper, который
-    находит ссылки на статьи и вытаскивает их og-теги. При любой сетевой ошибке
-    возвращает пустой список, не роняя весь цикл сбора новостей."""
+    находит ссылки на статьи и вытаскивает их og-теги. Если источник не
+    открылся, возвращает None, не роняя весь цикл сбора новостей."""
     if source.source_type == SourceType.HTML:
         from bot.services.scraper import fetch_html_source_items
 
@@ -153,7 +157,7 @@ async def fetch_source_items(client: httpx.AsyncClient, source: Source) -> list[
 
     raw = await _fetch_bytes(client, source.url)
     if raw is None:
-        return []
+        return None
 
     parsed = await asyncio.to_thread(feedparser.parse, raw)
 
@@ -179,19 +183,47 @@ async def fetch_source_items(client: httpx.AsyncClient, source: Source) -> list[
     return items
 
 
-async def collect_latest_unseen(sources: list[Source], seen_urls: set[str]) -> NewsItem | None:
+class CollectResult(NamedTuple):
+    item: NewsItem | None
+    # Источники, которые не открылись или не отдали ни одной новости
+    failed_sources: list[Source]
+
+
+async def collect_latest_unseen(
+    sources: list[Source], seen_urls: set[str], word_filter: WordFilter | None = None
+) -> CollectResult:
     """Опрашивает все активные источники параллельно и возвращает самую свежую
-    новость, которой ещё нет в seen_urls (история публикаций/отклонений)."""
+    новость, которой ещё нет в seen_urls (история публикаций/отклонений) и
+    которая проходит фильтр по словам."""
     if not sources:
-        return None
+        return CollectResult(None, [])
 
     async with httpx.AsyncClient() as client:
-        results = await asyncio.gather(*(fetch_source_items(client, s) for s in sources))
+        results = await asyncio.gather(
+            *(fetch_source_items(client, s) for s in sources), return_exceptions=True
+        )
 
-    fitted = (_fit_to_columns(item) for items in results for item in items)
-    candidates = [item for item in fitted if item is not None and item.url not in seen_urls]
+    failed: list[Source] = []
+    all_items: list[NewsItem] = []
+    for source, result in zip(sources, results):
+        if isinstance(result, BaseException):
+            logger.warning("Источник %s: ошибка при сборе: %r", source.url, result)
+            failed.append(source)
+        elif not result:
+            failed.append(source)
+        else:
+            all_items.extend(result)
+
+    fitted = (_fit_to_columns(item) for item in all_items)
+    candidates = [
+        item
+        for item in fitted
+        if item is not None
+        and item.url not in seen_urls
+        and (word_filter is None or word_filter.allows(item.title, item.summary))
+    ]
     if not candidates:
-        return None
+        return CollectResult(None, failed)
 
     # Перемешиваем до сортировки: у большинства HTML-источников published_at
     # неизвестен (None), и без шаффла стабильная сортировка каждый раз
@@ -200,4 +232,4 @@ async def collect_latest_unseen(sources: list[Source], seen_urls: set[str]) -> N
     random.shuffle(candidates)
     epoch = datetime.min.replace(tzinfo=timezone.utc)
     candidates.sort(key=lambda item: item.published_at or epoch, reverse=True)
-    return candidates[0]
+    return CollectResult(candidates[0], failed)

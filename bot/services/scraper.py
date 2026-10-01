@@ -123,13 +123,15 @@ async def _parse_article(client: httpx.AsyncClient, source: Source, url: str) ->
     )
 
 
-async def fetch_html_source_items(client: httpx.AsyncClient, source: Source) -> list[NewsItem]:
+async def fetch_html_source_items(
+    client: httpx.AsyncClient, source: Source
+) -> list[NewsItem] | None:
     """Скачивает страницу-список source.url, находит ссылки на статьи и
-    парсит og-теги каждой из них. При любой сетевой ошибке — как и для RSS —
-    возвращает пустой список, не роняя весь цикл сбора."""
+    парсит og-теги каждой из них. Если сама страница не открылась — как и для
+    RSS — возвращает None, не роняя весь цикл сбора."""
     raw = await _fetch_bytes(client, source.url)
     if raw is None:
-        return []
+        return None
 
     links = await asyncio.to_thread(_extract_article_links, source.url, raw)
     if not links:
