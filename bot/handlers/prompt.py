@@ -12,10 +12,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from bot.config import get_settings
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback, main_menu_keyboard
-from bot.services.ai import build_default_system_prompt, get_system_prompt, set_system_prompt
+from bot.i18n import t
+from bot.services.ai import default_system_prompt, get_system_prompt, set_system_prompt
 
 router = Router(name="prompt")
 router.message.filter(IsAdmin())
@@ -40,13 +40,13 @@ class ResetPromptCallback(CallbackData, prefix="promptreset"):
 def _prompt_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Изменить", callback_data=EditPromptCallback().pack())],
+            [InlineKeyboardButton(text=t("prompt.edit_btn"), callback_data=EditPromptCallback().pack())],
             [
                 InlineKeyboardButton(
-                    text="♻️ Сбросить на умолчание", callback_data=ResetPromptCallback().pack()
+                    text=t("prompt.reset_btn"), callback_data=ResetPromptCallback().pack()
                 )
             ],
-            [InlineKeyboardButton(text="⬅️ Меню", callback_data=MenuCallback(action="main").pack())],
+            [InlineKeyboardButton(text=t("menu.back"), callback_data=MenuCallback(action="main").pack())],
         ]
     )
 
@@ -64,7 +64,7 @@ async def cb_open_prompt(query: CallbackQuery) -> None:
     current = await get_system_prompt()
     if query.message is not None:
         await query.message.edit_text(
-            f"🏷 Текущий промпт для нейросети:\n\n{_preview(current)}", reply_markup=_prompt_keyboard()
+            t("prompt.current", prompt=_preview(current)), reply_markup=_prompt_keyboard()
         )
     await query.answer()
 
@@ -73,11 +73,7 @@ async def cb_open_prompt(query: CallbackQuery) -> None:
 async def cb_edit_prompt_start(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PromptStates.waiting_new_prompt)
     if query.message is not None:
-        await query.message.answer(
-            "Пришли новый текст промпта одним сообщением — он полностью заменит "
-            "текущий. В нём можно словами задать длину поста, упоминание фото, "
-            "тон, формат и что угодно ещё."
-        )
+        await query.message.answer(t("prompt.ask"))
     await query.answer()
 
 
@@ -85,13 +81,13 @@ async def cb_edit_prompt_start(query: CallbackQuery, state: FSMContext) -> None:
 async def cb_edit_prompt_got(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if not text:
-        await message.answer("Промпт не может быть пустым. Пришли текст ещё раз.")
+        await message.answer(t("prompt.empty"))
         return
 
     await state.clear()
     await set_system_prompt(text)
     await message.answer(
-        "✅ Промпт обновлён — новые черновики будут генерироваться уже с ним.",
+        t("prompt.updated"),
         reply_markup=main_menu_keyboard(),
     )
 
@@ -99,10 +95,10 @@ async def cb_edit_prompt_got(message: Message, state: FSMContext) -> None:
 @router.callback_query(ResetPromptCallback.filter())
 async def cb_reset_prompt(query: CallbackQuery) -> None:
     await set_system_prompt(None)
-    default_prompt = build_default_system_prompt(get_settings().bot_topic)
+    default_prompt = default_system_prompt()
     if query.message is not None:
         await query.message.edit_text(
-            f"♻️ Сброшено на умолчание:\n\n{_preview(default_prompt)}",
+            t("prompt.reset_done", prompt=_preview(default_prompt)),
             reply_markup=_prompt_keyboard(),
         )
-    await query.answer("Сброшено")
+    await query.answer(t("prompt.reset_toast"))

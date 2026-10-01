@@ -9,16 +9,18 @@ from aiogram.types import CallbackQuery
 
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback, main_menu_keyboard
+from bot.i18n import t
 from bot.services.scheduler import generate_draft_job
 
 router = Router(name="generate")
 router.callback_query.filter(IsAdmin())
 
+# статус generate_draft_job -> ключ текста
 _STATUS_MESSAGES = {
-    "sent": "✅ Черновик готов и отправлен на модерацию выше.",
-    "no_news": "Нет новых новостей ни в одном включённом источнике.",
-    "generation_failed": "⚠️ Нейросеть не смогла сгенерировать текст — попробуй ещё раз позже.",
-    "busy": "⏳ Черновик уже генерируется — дождись его.",
+    "sent": "gen.sent",
+    "no_news": "gen.no_news",
+    "generation_failed": "gen.failed",
+    "busy": "gen.busy",
 }
 
 # Пауза между ручными запусками, общая для всех админов: каждый запуск — это
@@ -32,7 +34,7 @@ async def cb_generate_now(query: CallbackQuery, bot: Bot) -> None:
     global _last_manual_run
     wait = _COOLDOWN_SECONDS - (time.monotonic() - _last_manual_run)
     if wait > 0:
-        await query.answer(f"Подожди ещё {int(wait) + 1} сек.", show_alert=True)
+        await query.answer(t("gen.wait", seconds=int(wait) + 1), show_alert=True)
         return
     _last_manual_run = time.monotonic()
 
@@ -41,11 +43,11 @@ async def cb_generate_now(query: CallbackQuery, bot: Bot) -> None:
     if query.message is not None:
         # Сбор новости + вызов нейросети может занять до десятка секунд — без
         # видимого статуса выглядит так, будто бот завис.
-        status_message = await query.message.answer("🔄 Собираю новость и генерирую черновик…")
+        status_message = await query.message.answer(t("gen.working"))
 
     status = await generate_draft_job(bot)
 
     if status_message is not None:
         await status_message.edit_text(
-            _STATUS_MESSAGES.get(status, "Готово."), reply_markup=main_menu_keyboard()
+            t(_STATUS_MESSAGES.get(status, "gen.done")), reply_markup=main_menu_keyboard()
         )

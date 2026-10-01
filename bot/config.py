@@ -30,10 +30,14 @@ class Settings(BaseSettings):
     # Тематика канала — вставляется в системный промпт нейросети. Источники
     # (RSS/HTML) уже тематически нейтральны, так что смена темы + источников
     # достаточна, чтобы превратить бота в канал про что угодно.
-    bot_topic: str = "автомобильные новости"
+    # Не задана — берётся тема по умолчанию на языке бота (см. bot/locales).
+    bot_topic: str | None = None
+    # Язык меню, сообщений админам и промпта по умолчанию.
+    bot_language: Literal["ru", "en"] = "ru"
 
     @field_validator(
         "ai_model",
+        "bot_topic",
         "anthropic_api_key",
         "openai_api_key",
         "gemini_api_key",

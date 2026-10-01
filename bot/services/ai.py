@@ -17,6 +17,7 @@ import httpx
 from bot.config import get_settings
 from bot.db.models import BotSetting
 from bot.db.session import async_session_factory
+from bot.i18n import t
 from bot.services.news import NewsItem
 
 logger = logging.getLogger(__name__)
@@ -112,15 +113,13 @@ async def describe_provider() -> str:
 
 
 def build_default_system_prompt(topic: str) -> str:
-    return (
-        f"Ты — редактор Telegram-канала на тему «{topic}». Перепиши присланную "
-        "новость в короткий пост для Telegram: 3-6 предложений, живым языком, "
-        "без канцелярита и без вступлений вроде «Вот пост:». Используй только "
-        "факты из присланного текста, ничего не придумывай и не добавляй. Не "
-        "используй markdown-разметку и хэштеги; эмодзи — умеренно и только по "
-        "смыслу. Не добавляй ссылку на источник — она будет прикреплена "
-        "отдельно. В ответе — только текст поста."
-    )
+    return t("ai.default_prompt", topic=topic)
+
+
+def default_system_prompt() -> str:
+    """Промпт по умолчанию на языке бота: тема — BOT_TOPIC, а если она не
+    задана, тема по умолчанию для этого языка."""
+    return build_default_system_prompt(get_settings().bot_topic or t("default_topic"))
 
 
 async def get_system_prompt() -> str:
@@ -130,7 +129,7 @@ async def get_system_prompt() -> str:
         setting = await session.get(BotSetting, 1)
         if setting is not None and setting.system_prompt:
             return setting.system_prompt
-    return build_default_system_prompt(get_settings().bot_topic)
+    return default_system_prompt()
 
 
 async def set_system_prompt(prompt: str | None) -> None:
@@ -236,12 +235,9 @@ async def generate_text(title: str, summary: str | None, previous: str | None = 
     сетевой ошибке возвращает None, не роняя цикл планировщика."""
     provider = await get_active_provider()
     system_prompt = await get_system_prompt()
-    user_content = f"Заголовок: {title}\n\nТекст анонса: {summary or '(отсутствует)'}"
+    user_content = t("ai.user_content", title=title, summary=summary or t("ai.no_summary"))
     if previous:
-        user_content += (
-            "\n\nПредыдущий вариант поста не подошёл — напиши другой, с иной "
-            f"подачей и формулировками:\n{previous}"
-        )
+        user_content += t("ai.previous", previous=previous)
 
     if provider == "anthropic":
         return await _generate_anthropic(system_prompt, user_content)

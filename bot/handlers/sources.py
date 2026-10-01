@@ -19,6 +19,7 @@ from bot.db.models import NewsStatus, PostedNews, Source, SourceType
 from bot.db.session import async_session_factory
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback, main_menu_keyboard
+from bot.i18n import t
 from bot.services.source_detect import detect_source
 from bot.services.telegram_channel import channel_url, channel_username
 
@@ -54,17 +55,18 @@ class SkipNameCallback(CallbackData, prefix="srcskipname"):
 _MAX_URL_LEN = Source.__table__.c.url.type.length
 _MAX_NAME_LEN = Source.__table__.c.name.type.length
 
+# тип источника -> ключ его названия
 _TYPE_LABELS = {
-    SourceType.RSS: "RSS-фид",
-    SourceType.HTML: "HTML-страница",
-    SourceType.TELEGRAM: "Telegram-канал",
+    SourceType.RSS: "src.type_rss",
+    SourceType.HTML: "src.type_html",
+    SourceType.TELEGRAM: "src.type_telegram",
 }
 
 
 def _cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=CancelWizardCallback().pack())]
+            [InlineKeyboardButton(text=t("common.cancel"), callback_data=CancelWizardCallback().pack())]
         ]
     )
 
@@ -82,7 +84,7 @@ def _type_choice_keyboard() -> InlineKeyboardMarkup:
                     callback_data=AddSourceTypeCallback(source_type=SourceType.HTML.value).pack(),
                 ),
             ],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=CancelWizardCallback().pack())],
+            [InlineKeyboardButton(text=t("common.cancel"), callback_data=CancelWizardCallback().pack())],
         ]
     )
 
@@ -91,8 +93,8 @@ def _skip_name_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="⏭ Пропустить", callback_data=SkipNameCallback().pack()),
-                InlineKeyboardButton(text="❌ Отмена", callback_data=CancelWizardCallback().pack()),
+                InlineKeyboardButton(text=t("src.skip_btn"), callback_data=SkipNameCallback().pack()),
+                InlineKeyboardButton(text=t("common.cancel"), callback_data=CancelWizardCallback().pack()),
             ]
         ]
     )
@@ -102,7 +104,7 @@ def _source_button_label(idx: int, source: Source) -> str:
     label = source.name or source.url
     if len(label) > 28:
         label = label[:27] + "…"
-    suffix = " (выкл)" if not source.is_active else ""
+    suffix = t("src.off_suffix") if not source.is_active else ""
     return f"{idx}. {label}{suffix}"
 
 
@@ -119,22 +121,23 @@ def _sources_list_keyboard(sources: list[Source]) -> InlineKeyboardMarkup:
     rows.append(
         [
             InlineKeyboardButton(
-                text="➕ Добавить", callback_data=MenuCallback(action="add_source").pack()
+                text=t("menu.add"), callback_data=MenuCallback(action="add_source").pack()
             ),
-            InlineKeyboardButton(text="⬅️ Меню", callback_data=MenuCallback(action="main").pack()),
+            InlineKeyboardButton(text=t("menu.back"), callback_data=MenuCallback(action="main").pack()),
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _stats_line(counts: dict[NewsStatus, int]) -> str:
-    line = (
-        f"Опубликовано {counts.get(NewsStatus.POSTED, 0)} · "
-        f"Отклонено {counts.get(NewsStatus.REJECTED, 0)} · "
-        f"Ждут {counts.get(NewsStatus.PENDING, 0)}"
+    line = t(
+        "src.stats",
+        posted=counts.get(NewsStatus.POSTED, 0),
+        rejected=counts.get(NewsStatus.REJECTED, 0),
+        pending=counts.get(NewsStatus.PENDING, 0),
     )
     expired = counts.get(NewsStatus.EXPIRED, 0)
-    return f"{line} · Истекло {expired}" if expired else line
+    return line + t("src.stats_expired", expired=expired) if expired else line
 
 
 async def _status_counts(session: AsyncSession, source_id: int | None = None) -> dict[NewsStatus, int]:
@@ -147,17 +150,22 @@ async def _status_counts(session: AsyncSession, source_id: int | None = None) ->
 
 
 def _source_detail_text(source: Source, counts: dict[NewsStatus, int]) -> str:
-    status = "включён ▶️" if source.is_active else "выключен ⏸"
     # Название и URL вводит админ — экранируем, т.к. у бота parse_mode=HTML
-    name_line = f"\nНазвание: {html.escape(source.name, quote=False)}" if source.name else ""
-    return (
-        f"Тип: {_TYPE_LABELS[source.source_type]}{name_line}\nURL: {html.escape(source.url, quote=False)}\n"
-        f"Статус: {status}\n\n📊 Черновики: {_stats_line(counts)}"
+    name_line = (
+        t("src.name_line", name=html.escape(source.name, quote=False)) if source.name else ""
+    )
+    return t(
+        "src.detail",
+        type=t(_TYPE_LABELS[source.source_type]),
+        name_line=name_line,
+        url=html.escape(source.url, quote=False),
+        status=t("src.status_on") if source.is_active else t("src.status_off"),
+        stats=_stats_line(counts),
     )
 
 
 def _source_detail_keyboard(source: Source) -> InlineKeyboardMarkup:
-    toggle_text = "⏸ Выключить" if source.is_active else "▶️ Включить"
+    toggle_text = t("src.disable_btn") if source.is_active else t("src.enable_btn")
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -168,11 +176,11 @@ def _source_detail_keyboard(source: Source) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="🗑 Удалить",
+                    text=t("src.delete_btn"),
                     callback_data=SourceCallback(action="remove", source_id=source.id).pack(),
                 )
             ],
-            [InlineKeyboardButton(text="⬅️ К списку", callback_data=MenuCallback(action="sources").pack())],
+            [InlineKeyboardButton(text=t("src.back_btn"), callback_data=MenuCallback(action="sources").pack())],
         ]
     )
 
@@ -186,11 +194,11 @@ async def _render_sources_list(query: CallbackQuery) -> None:
         return
     if sources:
         await query.message.edit_text(
-            f"📋 Источники (нажми, чтобы открыть):\n\n📊 Всего черновиков: {_stats_line(counts)}",
+            t("src.list", stats=_stats_line(counts)),
             reply_markup=_sources_list_keyboard(sources),
         )
     else:
-        await query.message.edit_text("Источников пока нет.", reply_markup=main_menu_keyboard())
+        await query.message.edit_text(t("src.empty"), reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(MenuCallback.filter(F.action == "sources"))
@@ -206,7 +214,7 @@ async def cb_view_source(query: CallbackQuery, callback_data: SourceCallback) ->
         counts = await _status_counts(session, callback_data.source_id)
 
     if source is None:
-        await query.answer("Источник не найден — возможно, уже удалён.", show_alert=True)
+        await query.answer(t("src.not_found"), show_alert=True)
         await _render_sources_list(query)
         return
 
@@ -222,7 +230,7 @@ async def cb_toggle_source(query: CallbackQuery, callback_data: SourceCallback) 
     async with async_session_factory() as session:
         source = await session.get(Source, callback_data.source_id)
         if source is None:
-            await query.answer("Источник уже удалён.", show_alert=True)
+            await query.answer(t("src.already_deleted"), show_alert=True)
             await _render_sources_list(query)
             return
         source.is_active = not source.is_active
@@ -234,7 +242,7 @@ async def cb_toggle_source(query: CallbackQuery, callback_data: SourceCallback) 
 
     if query.message is not None:
         await query.message.edit_text(text, reply_markup=keyboard)
-    await query.answer("Включён ▶️" if is_active else "Выключен ⏸")
+    await query.answer(t("src.enabled_toast") if is_active else t("src.disabled_toast"))
 
 
 @router.callback_query(SourceCallback.filter(F.action == "remove"))
@@ -242,13 +250,13 @@ async def cb_remove_source(query: CallbackQuery, callback_data: SourceCallback) 
     async with async_session_factory() as session:
         source = await session.get(Source, callback_data.source_id)
         if source is None:
-            await query.answer("Источник уже удалён.", show_alert=True)
+            await query.answer(t("src.already_deleted"), show_alert=True)
             await _render_sources_list(query)
             return
         await session.delete(source)
         await session.commit()
 
-    await query.answer("Удалено")
+    await query.answer(t("src.deleted_toast"))
     await _render_sources_list(query)
 
 
@@ -257,8 +265,7 @@ async def cb_start_add_source(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AddSourceStates.waiting_url)
     if query.message is not None:
         await query.message.answer(
-            "Пришли адрес источника: главную страницу сайта или RSS-фид (с http:// или https://) "
-            "либо публичный Telegram-канал — @имя или ссылку t.me/имя. Тип определю сам.",
+            t("src.ask_url"),
             reply_markup=_cancel_keyboard(),
         )
     await query.answer()
@@ -273,44 +280,45 @@ async def add_source_got_url(message: Message, state: FSMContext) -> None:
         await state.update_data(url=channel_url(username), source_type=SourceType.TELEGRAM.value)
         await state.set_state(AddSourceStates.waiting_name)
         await message.answer(
-            f"Telegram-канал @{username}. Название источника? Пришли текстом или нажми «Пропустить».",
+            t("src.tg_detected", username=username, ask_name=t("src.ask_name")),
             reply_markup=_skip_name_keyboard(),
         )
         return
     if len(url) > _MAX_URL_LEN:
         await message.answer(
-            f"Адрес слишком длинный: {len(url)} символов при лимите {_MAX_URL_LEN}. Пришли ещё раз.",
+            t("src.url_too_long", length=len(url), limit=_MAX_URL_LEN),
             reply_markup=_cancel_keyboard(),
         )
         return
     if not url.startswith(("http://", "https://")):
         await message.answer(
-            "Нужен URL с http:// или https:// либо Telegram-канал (@имя или t.me/имя). Пришли ещё раз.",
+            t("src.bad_url"),
             reply_markup=_cancel_keyboard(),
         )
         return
 
     # Проверка ходит на сайт и занимает несколько секунд — показываем статус
-    status = await message.answer("🔎 Проверяю адрес и ищу RSS…")
+    status = await message.answer(t("src.checking"))
     detected = await detect_source(url)
     if detected is None or len(detected.url) > _MAX_URL_LEN:
         await state.update_data(url=url)
         await state.set_state(AddSourceStates.waiting_type)
         await status.edit_text(
-            "⚠️ Не нашёл ни RSS, ни ссылок на статьи: страница не открылась или устроена "
-            "необычно. Можно выбрать тип вручную, но новостей с такого источника, скорее всего, не будет.",
+            t("src.nothing_found"),
             reply_markup=_type_choice_keyboard(),
         )
         return
 
     if detected.source_type == SourceType.RSS:
-        found = f"✅ Нашёл RSS: {html.escape(detected.url, quote=False)}\nНовостей в ленте: {detected.items}."
+        found = t(
+            "src.found_rss", url=html.escape(detected.url, quote=False), items=detected.items
+        )
     else:
-        found = f"RSS не нашёл — добавлю как HTML-страницу. Ссылок на статьи на ней: {detected.items}."
+        found = t("src.found_html", items=detected.items)
     await state.update_data(url=detected.url, source_type=detected.source_type.value)
     await state.set_state(AddSourceStates.waiting_name)
     await status.edit_text(
-        f"{found}\n\nНазвание источника? Пришли текстом или нажми «Пропустить».",
+        f"{found}\n\n{t('src.ask_name')}",
         reply_markup=_skip_name_keyboard(),
     )
 
@@ -323,7 +331,7 @@ async def add_source_got_type(
     await state.set_state(AddSourceStates.waiting_name)
     if query.message is not None:
         await query.message.edit_text(
-            "Название источника? Пришли текстом или нажми «Пропустить».",
+            t("src.ask_name"),
             reply_markup=_skip_name_keyboard(),
         )
     await query.answer()
@@ -337,14 +345,18 @@ async def _create_source(target: Message, url: str, source_type: str, name: str 
             await session.commit()
         except IntegrityError:
             await session.rollback()
-            await target.answer("⚠️ Такой источник уже добавлен.", reply_markup=main_menu_keyboard())
+            await target.answer(t("src.duplicate"), reply_markup=main_menu_keyboard())
             return
 
-    type_label = _TYPE_LABELS[SourceType(source_type)]
-    name_line = f"\nНазвание: {html.escape(name, quote=False)}" if name else ""
+    name_line = t("src.name_line", name=html.escape(name, quote=False)) if name else ""
     await target.answer(
-        f"✅ Источник добавлен (id={source.id})\nТип: {type_label}\n"
-        f"URL: {html.escape(url, quote=False)}{name_line}",
+        t(
+            "src.added",
+            id=source.id,
+            type=t(_TYPE_LABELS[SourceType(source_type)]),
+            url=html.escape(url, quote=False),
+            name_line=name_line,
+        ),
         reply_markup=main_menu_keyboard(),
     )
 
@@ -355,7 +367,7 @@ async def add_source_got_name(message: Message, state: FSMContext) -> None:
     if name is not None and len(name) > _MAX_NAME_LEN:
         # состояние не сбрасываем: админ пришлёт название короче
         await message.answer(
-            f"Название слишком длинное: {len(name)} символов при лимите {_MAX_NAME_LEN}. Пришли короче.",
+            t("src.name_too_long", length=len(name), limit=_MAX_NAME_LEN),
             reply_markup=_skip_name_keyboard(),
         )
         return
@@ -377,6 +389,6 @@ async def add_source_skip_name(query: CallbackQuery, state: FSMContext) -> None:
 async def cb_cancel_wizard(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     if query.message is not None:
-        await query.message.edit_text("Отменено.")
-        await query.message.answer("Выбери действие:", reply_markup=main_menu_keyboard())
+        await query.message.edit_text(t("src.cancelled"))
+        await query.message.answer(t("base.choose"), reply_markup=main_menu_keyboard())
     await query.answer()

@@ -12,6 +12,7 @@ from aiogram import Bot, Router
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import ErrorEvent
 
+from bot.i18n import t
 from bot.services.alerts import report_error
 
 logger = logging.getLogger(__name__)
@@ -37,8 +38,8 @@ async def on_unhandled_error(event: ErrorEvent, bot: Bot) -> bool:
     logger.error("Необработанная ошибка в обработчике", exc_info=exc)
     if query is not None:
         try:
-            await query.answer("⚠️ Что-то пошло не так. Админы получили сообщение.", show_alert=True)
+            await query.answer(t("err.query"), show_alert=True)
         except TelegramAPIError:
             pass
-    await report_error(bot, exc, "обработчик")
+    await report_error(bot, exc, t("err.where_handler"))
     return True

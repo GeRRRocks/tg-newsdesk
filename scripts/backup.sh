@@ -7,7 +7,8 @@
 # Копия: pg_dump -> gzip -> /backups, затем отправка в S3, если задан S3_BUCKET.
 # Локальные копии старше BACKUP_KEEP_DAYS удаляются; в S3 скрипт ничего не
 # удаляет — срок хранения там задаётся правилом жизненного цикла бакета.
-# О любой неудаче сообщает админам в Telegram.
+# О любой неудаче сообщает админам в Telegram — на языке BOT_LANGUAGE (ru/en);
+# журнал контейнера остаётся на русском.
 
 set -eu
 set -o pipefail
@@ -33,9 +34,14 @@ notify_admins() {
     done
 }
 
+# fail <текст для журнала и русского сообщения> <текст английского сообщения>
 fail() {
     log "ОШИБКА: $1"
-    notify_admins "⚠️ Резервная копия базы: $1"
+    if [ "${BOT_LANGUAGE:-ru}" = en ]; then
+        notify_admins "⚠️ Database backup: $2"
+    else
+        notify_admins "⚠️ Резервная копия базы: $1"
+    fi
     return 1
 }
 
@@ -53,12 +59,12 @@ run_backup() {
 
     if ! PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h db -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$tmp"; then
         rm -f "$tmp"
-        fail "не удалось снять дамп."
+        fail "не удалось снять дамп." "the dump could not be taken."
         return 1
     fi
     if ! gzip -t "$tmp" || [ "$(wc -c < "$tmp")" -lt 1000 ]; then
         rm -f "$tmp"
-        fail "дамп получился пустым или повреждённым."
+        fail "дамп получился пустым или повреждённым." "the dump is empty or corrupted."
         return 1
     fi
     chmod 600 "$tmp" && mv "$tmp" "$file"
@@ -68,7 +74,8 @@ run_backup() {
         if upload_s3 "$file"; then
             log "отправлено в S3: ${S3_BUCKET}/${S3_PREFIX:-}$(basename "$file")"
         else
-            fail "дамп снят, но не отправлен в S3. Локальная копия: $(basename "$file")."
+            fail "дамп снят, но не отправлен в S3. Локальная копия: $(basename "$file")." \
+                "the dump was taken but not uploaded to S3. Local copy: $(basename "$file")."
             return 1
         fi
     else

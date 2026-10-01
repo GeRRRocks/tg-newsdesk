@@ -16,10 +16,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback, main_menu_keyboard
+from bot.i18n import t
 from bot.services.scheduler import (
     ScheduleConfig,
     WEEKDAY_CODES,
-    WEEKDAY_LABELS,
     add_weekly_time,
     get_schedule_config,
     remove_weekly_time,
@@ -76,27 +76,27 @@ def _unpack_time(hhmm: str) -> str:
 def _format_interval(minutes: int) -> str:
     if minutes % 1440 == 0:
         days = minutes // 1440
-        return "1 день" if days == 1 else f"{days} дн"
+        return t("sched.one_day") if days == 1 else t("sched.days", n=days)
     if minutes % 60 == 0:
-        return f"{minutes // 60} ч"
-    return f"{minutes} мин"
+        return t("sched.hours", n=minutes // 60)
+    return t("sched.minutes", n=minutes)
 
 
 def _mode_row(current_mode: str) -> list[InlineKeyboardButton]:
     return [
         InlineKeyboardButton(
-            text=("✅ " if current_mode == "interval" else "") + "⏱ Интервал",
+            text=("✅ " if current_mode == "interval" else "") + t("sched.mode_interval"),
             callback_data=ModeCallback(mode="interval").pack(),
         ),
         InlineKeyboardButton(
-            text=("✅ " if current_mode == "weekly" else "") + "📅 Дни и время",
+            text=("✅ " if current_mode == "weekly" else "") + t("sched.mode_weekly"),
             callback_data=ModeCallback(mode="weekly").pack(),
         ),
     ]
 
 
 def _interval_text(current_minutes: int) -> str:
-    return f"⏱ Автогенерация черновика: раз в {_format_interval(current_minutes)}.\nВыбери новый интервал:"
+    return t("sched.interval_text", interval=_format_interval(current_minutes))
 
 
 def _interval_keyboard(current_minutes: int) -> InlineKeyboardMarkup:
@@ -112,18 +112,18 @@ def _interval_keyboard(current_minutes: int) -> InlineKeyboardMarkup:
             ]
         )
     rows.append(
-        [InlineKeyboardButton(text="✏️ Своё значение", callback_data=CustomIntervalCallback().pack())]
+        [InlineKeyboardButton(text=t("sched.custom_btn"), callback_data=CustomIntervalCallback().pack())]
     )
-    rows.append([InlineKeyboardButton(text="⬅️ Меню", callback_data=MenuCallback(action="main").pack())])
+    rows.append([InlineKeyboardButton(text=t("menu.back"), callback_data=MenuCallback(action="main").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _weekly_text(days: list[str], times: list[str]) -> str:
-    days_label = " ".join(WEEKDAY_LABELS[d] for d in days) if days else "— не выбраны —"
-    times_label = ", ".join(times) if times else "— не выбрано —"
-    text = f"📅 Публикация по дням недели.\nДни: {days_label}\nВремя: {times_label}"
+    days_label = " ".join(t(f"weekday.{d}") for d in days) if days else t("sched.days_none")
+    times_label = ", ".join(times) if times else t("sched.times_none")
+    text = t("sched.weekly_text", days=days_label, times=times_label)
     if not days or not times:
-        text += "\n⚠️ Нужен хотя бы один день и время — пока не выбраны, работает интервал."
+        text += t("sched.weekly_warning")
     return text
 
 
@@ -132,7 +132,7 @@ def _weekly_keyboard(days: list[str], times: list[str]) -> InlineKeyboardMarkup:
 
     day_buttons = [
         InlineKeyboardButton(
-            text=("✅ " if code in days else "") + WEEKDAY_LABELS[code],
+            text=("✅ " if code in days else "") + t(f"weekday.{code}"),
             callback_data=WeekdayCallback(day=code).pack(),
         )
         for code in WEEKDAY_CODES
@@ -149,9 +149,9 @@ def _weekly_keyboard(days: list[str], times: list[str]) -> InlineKeyboardMarkup:
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="➕ Добавить время", callback_data=AddTimeCallback().pack())])
+    rows.append([InlineKeyboardButton(text=t("sched.add_time_btn"), callback_data=AddTimeCallback().pack())])
 
-    rows.append([InlineKeyboardButton(text="⬅️ Меню", callback_data=MenuCallback(action="main").pack())])
+    rows.append([InlineKeyboardButton(text=t("menu.back"), callback_data=MenuCallback(action="main").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -190,14 +190,14 @@ async def cb_set_interval(
     await set_draft_interval_minutes(callback_data.minutes, scheduler, bot)
     config = await get_schedule_config()
     await _render(query, config)
-    await query.answer("Сохранено ✅")
+    await query.answer(t("sched.saved_toast"))
 
 
 @router.callback_query(CustomIntervalCallback.filter())
 async def cb_custom_interval_start(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(ScheduleStates.waiting_custom_minutes)
     if query.message is not None:
-        await query.message.answer("Пришли интервал в минутах (целое число, например 90).")
+        await query.message.answer(t("sched.ask_minutes"))
     await query.answer()
 
 
@@ -207,13 +207,13 @@ async def cb_custom_interval_got(
 ) -> None:
     raw = (message.text or "").strip()
     if not raw.isdigit() or int(raw) < 1:
-        await message.answer("Нужно целое число минут, больше 0. Пришли ещё раз.")
+        await message.answer(t("sched.bad_minutes"))
         return
 
     minutes = int(raw)
     await state.clear()
     await set_draft_interval_minutes(minutes, scheduler, bot)
-    await message.answer(f"⏱ Готово: раз в {_format_interval(minutes)}.", reply_markup=main_menu_keyboard())
+    await message.answer(t("sched.interval_done", interval=_format_interval(minutes)), reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(WeekdayCallback.filter())
@@ -230,7 +230,7 @@ async def cb_toggle_day(
 async def cb_add_time_start(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(ScheduleStates.waiting_weekly_time)
     if query.message is not None:
-        await query.message.answer("Пришли время в формате ЧЧ:ММ, например 09:00.")
+        await query.message.answer(t("sched.ask_time"))
     await query.answer()
 
 
@@ -240,7 +240,7 @@ async def cb_add_time_got(
 ) -> None:
     raw = (message.text or "").strip()
     if not _TIME_RE.match(raw):
-        await message.answer("Формат должен быть ЧЧ:ММ, например 18:00. Пришли ещё раз.")
+        await message.answer(t("sched.bad_time"))
         return
 
     await state.clear()
@@ -259,4 +259,4 @@ async def cb_remove_time(
     await remove_weekly_time(_unpack_time(callback_data.hhmm), scheduler, bot)
     config = await get_schedule_config()
     await _render(query, config)
-    await query.answer("Удалено")
+    await query.answer(t("sched.removed_toast"))

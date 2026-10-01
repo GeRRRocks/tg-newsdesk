@@ -29,6 +29,7 @@ from bot.config import get_settings
 from bot.db.models import BotSetting, Draft, PostedNews, Source
 from bot.db.session import async_session_factory
 from bot.handlers.moderation import expire_stale_drafts, send_draft_for_moderation
+from bot.i18n import t
 from bot.services.ai import PROVIDER_LABELS, generate_post_text, get_active_provider
 from bot.services.alerts import notify_admins, report_error
 from bot.services.news import NewsItem, collect_latest_unseen
@@ -56,10 +57,6 @@ _ai_failing = False
 
 # Порядок фиксирован — используется и для сортировки дней в UI/cron.
 WEEKDAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-WEEKDAY_LABELS = {
-    "mon": "Пн", "tue": "Вт", "wed": "Ср", "thu": "Чт",
-    "fri": "Пт", "sat": "Сб", "sun": "Вс",
-}
 
 
 class ScheduleConfig(NamedTuple):
@@ -200,8 +197,7 @@ async def _track_source_failures(bot: Bot, sources: list[Source], failed: list[S
             name = html.escape(source.name or source.url, quote=False)
             await notify_admins(
                 bot,
-                f"⚠️ Источник «{name}» не отдаёт новости уже {streak} запуска подряд. "
-                "Проверь, открывается ли он, или выключи его в «📋 Источники».",
+                t("alert.source_failing", name=name, streak=streak),
             )
 
 
@@ -249,12 +245,11 @@ async def _track_ai_failure(bot: Bot, status: str, scheduled: bool) -> None:
             label = PROVIDER_LABELS[await get_active_provider()]
             await notify_admins(
                 bot,
-                f"⚠️ Нейросеть {label} не смогла написать черновик по расписанию. "
-                "Попробую снова в следующий запуск; сменить нейросеть можно в «🤖 Нейросеть».",
+                t("alert.ai_failed", label=label),
             )
     elif status == "sent" and _ai_failing:
         _ai_failing = False
-        await notify_admins(bot, "✅ Генерация черновиков снова работает.")
+        await notify_admins(bot, t("alert.ai_recovered"))
 
 
 async def _generate_draft(bot: Bot) -> str:
@@ -303,7 +298,7 @@ async def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     # Исключение внутри job'а APScheduler сам только пишет в лог — до
     # обработчика ошибок диспетчера оно не доходит.
     def on_job_error(event: JobExecutionEvent) -> None:
-        task = asyncio.create_task(report_error(bot, event.exception, "задача по расписанию"))
+        task = asyncio.create_task(report_error(bot, event.exception, t("err.where_job")))
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
 

@@ -12,16 +12,17 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback
+from bot.i18n import t
 from bot.services.news_filter import MAX_WORDS, get_word_filter, parse_words, set_words
 
 router = Router(name="news_filter")
 router.message.filter(IsAdmin())
 router.callback_query.filter(IsAdmin())
 
-# kind -> (колонка BotSetting, название списка в сообщениях)
+# kind -> (колонка BotSetting, ключ названия списка в сообщениях)
 _KINDS = {
-    "stop": ("filter_stop_words", "Стоп-слова"),
-    "req": ("filter_required_words", "Обязательные слова"),
+    "stop": ("filter_stop_words", "filter.kind_stop"),
+    "req": ("filter_required_words", "filter.kind_req"),
 }
 
 
@@ -35,18 +36,15 @@ class FilterCallback(CallbackData, prefix="nfilter"):
 
 
 def _words_line(words: list[str]) -> str:
-    return html.escape(", ".join(words), quote=False) if words else "не заданы"
+    return html.escape(", ".join(words), quote=False) if words else t("filter.not_set")
 
 
 async def _menu() -> tuple[str, InlineKeyboardMarkup]:
     word_filter = await get_word_filter()
-    text = (
-        "🚫 Фильтр новостей\n\n"
-        f"Стоп-слова: {_words_line(word_filter.stop_words)}\n"
-        "Новость с любым из них пропускается.\n\n"
-        f"Обязательные слова: {_words_line(word_filter.required_words)}\n"
-        "Если заданы, берутся только новости, где есть хотя бы одно.\n\n"
-        "Слова ищутся в заголовке и анонсе, регистр не важен."
+    text = t(
+        "filter.menu",
+        stop=_words_line(word_filter.stop_words),
+        required=_words_line(word_filter.required_words),
     )
 
     def button(label: str, action: str, kind: str) -> InlineKeyboardButton:
@@ -56,9 +54,9 @@ async def _menu() -> tuple[str, InlineKeyboardMarkup]:
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [button("✏️ Стоп-слова", "edit", "stop"), button("🗑 Очистить", "clear", "stop")],
-            [button("✏️ Обязательные", "edit", "req"), button("🗑 Очистить", "clear", "req")],
-            [InlineKeyboardButton(text="⬅️ Меню", callback_data=MenuCallback(action="main").pack())],
+            [button(t("filter.stop_btn"), "edit", "stop"), button(t("filter.clear_btn"), "clear", "stop")],
+            [button(t("filter.req_btn"), "edit", "req"), button(t("filter.clear_btn"), "clear", "req")],
+            [InlineKeyboardButton(text=t("menu.back"), callback_data=MenuCallback(action="main").pack())],
         ]
     )
     return text, keyboard
@@ -82,13 +80,12 @@ async def cb_edit_words(query: CallbackQuery, callback_data: FilterCallback, sta
     await state.update_data(kind=callback_data.kind)
     if query.message is not None:
         await query.message.answer(
-            f"{_KINDS[callback_data.kind][1]}: пришли слова или фразы одним сообщением через "
-            "запятую — они заменят текущий список. Например: такси, каршеринг, штраф",
+            t("filter.ask", kind=t(_KINDS[callback_data.kind][1])),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="❌ Отмена", callback_data=MenuCallback(action="filter").pack()
+                            text=t("common.cancel"), callback_data=MenuCallback(action="filter").pack()
                         )
                     ]
                 ]
@@ -101,7 +98,7 @@ async def cb_edit_words(query: CallbackQuery, callback_data: FilterCallback, sta
 async def msg_words(message: Message, state: FSMContext) -> None:
     words = parse_words(message.text)
     if not words:
-        await message.answer("Не вижу слов. Пришли их через запятую или нажми «Отмена».")
+        await message.answer(t("filter.no_words"))
         return
 
     kind = (await state.get_data()).get("kind")
@@ -110,8 +107,10 @@ async def msg_words(message: Message, state: FSMContext) -> None:
         return
     await set_words(_KINDS[kind][0], words)
     text, keyboard = await _menu()
-    note = f" (сохранены первые {MAX_WORDS})" if len(words) == MAX_WORDS else ""
-    await message.answer(f"✅ Сохранено{note}.\n\n{text}", reply_markup=keyboard)
+    saved = (
+        t("filter.saved_truncated", limit=MAX_WORDS) if len(words) == MAX_WORDS else t("filter.saved")
+    )
+    await message.answer(f"{saved}\n\n{text}", reply_markup=keyboard)
 
 
 @router.callback_query(FilterCallback.filter(F.action == "clear"))
@@ -122,10 +121,10 @@ async def cb_clear_words(query: CallbackQuery, callback_data: FilterCallback) ->
     word_filter = await get_word_filter()
     current = word_filter.stop_words if callback_data.kind == "stop" else word_filter.required_words
     if not current:
-        await query.answer("Список и так пуст")
+        await query.answer(t("filter.already_empty"))
         return
     await set_words(_KINDS[callback_data.kind][0], [])
     text, keyboard = await _menu()
     if query.message is not None:
         await query.message.edit_text(text, reply_markup=keyboard)
-    await query.answer("Очищено")
+    await query.answer(t("filter.cleared"))

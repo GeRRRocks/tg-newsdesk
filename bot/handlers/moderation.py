@@ -21,6 +21,7 @@ from bot.config import get_settings
 from bot.db.models import Draft, DraftNotification, NewsStatus, PostedNews
 from bot.db.session import async_session_factory
 from bot.filters.admin import IsAdmin
+from bot.i18n import t
 from bot.services.ai import generate_text
 
 logger = logging.getLogger(__name__)
@@ -49,21 +50,21 @@ def _keyboard(news_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Опубликовать",
+                    text=t("draft.publish_btn"),
                     callback_data=DraftCallback(action="approve", news_id=news_id).pack(),
                 ),
                 InlineKeyboardButton(
-                    text="❌ Отклонить",
+                    text=t("draft.reject_btn"),
                     callback_data=DraftCallback(action="reject", news_id=news_id).pack(),
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="🔄 Другой вариант",
+                    text=t("draft.regen_btn"),
                     callback_data=DraftCallback(action="regen", news_id=news_id).pack(),
                 ),
                 InlineKeyboardButton(
-                    text="✏️ Править",
+                    text=t("draft.edit_btn"),
                     callback_data=DraftCallback(action="edit", news_id=news_id).pack(),
                 ),
             ],
@@ -82,7 +83,7 @@ class CancelEditCallback(CallbackData, prefix="draftedit_cancel"):
 def _format_admin_text(draft: Draft) -> str:
     body = html.escape(draft.text, quote=False)
     link = html.escape(draft.source_link, quote=False)
-    return f"{body}\n\n🔗 Источник: {link}"
+    return t("draft.card", body=body, link=link)
 
 
 async def send_draft_for_moderation(bot: Bot, news_id: int) -> None:
@@ -208,7 +209,7 @@ async def _lock_news(session: AsyncSession, news_id: int) -> PostedNews | None:
 
 
 def _actor_name(query: CallbackQuery) -> str:
-    name = query.from_user.full_name if query.from_user else "неизвестно"
+    name = query.from_user.full_name if query.from_user else t("common.unknown")
     return html.escape(name, quote=False)
 
 
@@ -223,17 +224,17 @@ async def cb_approve(query: CallbackQuery, callback_data: DraftCallback, bot: Bo
         ).scalar_one_or_none()
 
         if news is None or draft is None:
-            await query.answer("Черновик не найден.", show_alert=True)
+            await query.answer(t("draft.not_found"), show_alert=True)
             return
         if news.status != NewsStatus.PENDING:
-            await query.answer("Уже обработано.", show_alert=True)
+            await query.answer(t("draft.already_done"), show_alert=True)
             return
 
         try:
             await _publish_to_group(bot, draft)
         except TelegramBadRequest as exc:
             logger.error("Публикация в группу не удалась (news_id=%s): %s", news.id, exc.message)
-            await query.answer(f"⚠️ Не удалось опубликовать: {exc.message}", show_alert=True)
+            await query.answer(t("draft.publish_failed", error=exc.message), show_alert=True)
             return
 
         news.status = NewsStatus.POSTED
@@ -241,8 +242,8 @@ async def cb_approve(query: CallbackQuery, callback_data: DraftCallback, bot: Bo
         draft_id = draft.id
         await session.commit()
 
-    await query.answer("Опубликовано ✅")
-    await _resolve_notifications(bot, draft_id, f"✅ Опубликовано в группу ({_actor_name(query)}).")
+    await query.answer(t("draft.published_toast"))
+    await _resolve_notifications(bot, draft_id, t("draft.published_note", name=_actor_name(query)))
 
 
 @router.callback_query(DraftCallback.filter(F.action == "reject"))
@@ -255,18 +256,18 @@ async def cb_reject(query: CallbackQuery, callback_data: DraftCallback, bot: Bot
             )
         ).scalar_one_or_none()
         if news is None or draft is None:
-            await query.answer("Черновик не найден.", show_alert=True)
+            await query.answer(t("draft.not_found"), show_alert=True)
             return
         if news.status != NewsStatus.PENDING:
-            await query.answer("Уже обработано.", show_alert=True)
+            await query.answer(t("draft.already_done"), show_alert=True)
             return
 
         news.status = NewsStatus.REJECTED
         draft_id = draft.id
         await session.commit()
 
-    await query.answer("Отклонено ❌")
-    await _resolve_notifications(bot, draft_id, f"❌ Черновик отклонён ({_actor_name(query)}).")
+    await query.answer(t("draft.rejected_toast"))
+    await _resolve_notifications(bot, draft_id, t("draft.rejected_note", name=_actor_name(query)))
 
 
 async def _replace_cards(bot: Bot, news_id: int, draft_id: int, note: str) -> None:
@@ -312,24 +313,24 @@ async def _pending_draft(news_id: int) -> tuple[PostedNews, Draft] | None:
 async def cb_regenerate(query: CallbackQuery, callback_data: DraftCallback, bot: Bot) -> None:
     news_id = callback_data.news_id
     if news_id in _regenerating:
-        await query.answer("Другой вариант уже пишется — подожди.", show_alert=True)
+        await query.answer(t("draft.regen_busy"), show_alert=True)
         return
     pending = await _pending_draft(news_id)
     if pending is None:
-        await query.answer("Уже обработано.", show_alert=True)
+        await query.answer(t("draft.already_done"), show_alert=True)
         return
     news, draft = pending
 
     _regenerating.add(news_id)
     try:
-        await query.answer("Пишу другой вариант…")
+        await query.answer(t("draft.regen_started"))
         # Запрос к нейросети идёт без блокировки строки: он длится секунды,
         # и держать на это время FOR UPDATE значило бы подвесить остальные кнопки.
         text = await generate_text(news.title, news.summary, previous=draft.text)
         if text is None:
             await bot.send_message(
                 chat_id=query.from_user.id,
-                text="⚠️ Нейросеть не смогла написать другой вариант — попробуй позже.",
+                text=t("draft.regen_failed"),
             )
             return
         draft_id = await _set_draft_text(news_id, text)
@@ -337,7 +338,7 @@ async def cb_regenerate(query: CallbackQuery, callback_data: DraftCallback, bot:
             # пока шла генерация, черновик опубликовали или отклонили
             return
         await _replace_cards(
-            bot, news_id, draft_id, f"🔄 Заменён другим вариантом ({_actor_name(query)})."
+            bot, news_id, draft_id, t("draft.regen_note", name=_actor_name(query))
         )
     finally:
         _regenerating.discard(news_id)
@@ -348,19 +349,18 @@ async def cb_edit_start(
     query: CallbackQuery, callback_data: DraftCallback, state: FSMContext
 ) -> None:
     if await _pending_draft(callback_data.news_id) is None:
-        await query.answer("Уже обработано.", show_alert=True)
+        await query.answer(t("draft.already_done"), show_alert=True)
         return
     await state.set_state(EditDraftStates.waiting_text)
     await state.update_data(news_id=callback_data.news_id)
     if query.message is not None:
         await query.message.answer(
-            "Пришли новый текст поста одним сообщением — он заменит текущий. "
-            "Текст публикуется как есть, без разметки; ссылку на источник добавлять не нужно.",
+            t("draft.edit_ask"),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="❌ Отмена", callback_data=CancelEditCallback().pack()
+                            text=t("common.cancel"), callback_data=CancelEditCallback().pack()
                         )
                     ]
                 ]
@@ -373,7 +373,7 @@ async def cb_edit_start(
 async def cb_edit_cancel(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     if query.message is not None:
-        await query.message.edit_text("Правка отменена — черновик остался прежним.")
+        await query.message.edit_text(t("draft.edit_cancelled"))
     await query.answer()
 
 
@@ -381,23 +381,25 @@ async def cb_edit_cancel(query: CallbackQuery, state: FSMContext) -> None:
 async def msg_edit_text(message: Message, state: FSMContext, bot: Bot) -> None:
     text = (message.text or "").strip()
     if not text:
-        await message.answer("Нужен текст. Пришли его одним сообщением или нажми «Отмена».")
+        await message.answer(t("draft.edit_need_text"))
         return
     if len(text) > _EDIT_TEXT_LIMIT:
-        await message.answer(
-            f"Слишком длинно: {len(text)} символов при лимите {_EDIT_TEXT_LIMIT}. Сократи и пришли ещё раз."
-        )
+        await message.answer(t("draft.edit_too_long", length=len(text), limit=_EDIT_TEXT_LIMIT))
         return
 
     news_id = (await state.get_data()).get("news_id")
     await state.clear()
     draft_id = await _set_draft_text(news_id, text) if news_id is not None else None
     if draft_id is None:
-        await message.answer("Этот черновик уже обработан — текст не изменён.")
+        await message.answer(t("draft.edit_gone"))
         return
 
-    name = html.escape(message.from_user.full_name, quote=False) if message.from_user else "неизвестно"
-    await _replace_cards(bot, news_id, draft_id, f"✏️ Текст заменён ({name}).")
+    name = (
+        html.escape(message.from_user.full_name, quote=False)
+        if message.from_user
+        else t("common.unknown")
+    )
+    await _replace_cards(bot, news_id, draft_id, t("draft.edit_note", name=name))
 
 
 async def expire_stale_drafts(bot: Bot, hours: int) -> int:
@@ -427,9 +429,7 @@ async def expire_stale_drafts(bot: Bot, hours: int) -> int:
             await session.commit()
         expired += 1
         if draft_id is not None:
-            await _resolve_notifications(
-                bot, draft_id, f"⌛ Черновик закрыт: без ответа {hours} ч."
-            )
+            await _resolve_notifications(bot, draft_id, t("draft.expired_note", hours=hours))
     if expired:
         logger.info("Автозакрытие: закрыто черновиков — %s", expired)
     return expired

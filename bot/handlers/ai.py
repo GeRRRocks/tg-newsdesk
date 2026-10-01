@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback
+from bot.i18n import t
 from bot.services.ai import (
     PROVIDER_LABELS,
     available_providers,
@@ -35,18 +36,14 @@ def _menu(active: str) -> tuple[str, InlineKeyboardMarkup]:
         elif name in available:
             text = label
         else:
-            text = f"🔒 {label} — нет ключа"
+            text = t("ai.no_key_button", label=label)
         rows.append(
             [InlineKeyboardButton(text=text, callback_data=ProviderCallback(name=name).pack())]
         )
     rows.append(
-        [InlineKeyboardButton(text="⬅️ Меню", callback_data=MenuCallback(action="main").pack())]
+        [InlineKeyboardButton(text=t("menu.back"), callback_data=MenuCallback(action="main").pack())]
     )
-    text = (
-        f"🤖 Посты пишет: {PROVIDER_LABELS[active]}\n"
-        f"Модель: {model_for(active)}\n\n"
-        "Выбери нейросеть — следующий черновик будет сгенерирован уже ею."
-    )
+    text = t("ai.menu", label=PROVIDER_LABELS[active], model=model_for(active))
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -66,16 +63,15 @@ async def cb_choose_provider(query: CallbackQuery, callback_data: ProviderCallba
         return
     if name not in available_providers():
         await query.answer(
-            f"Нет ключа. Добавь {name.upper()}_API_KEY в .env и перезапусти бота.",
-            show_alert=True,
+            t("ai.no_key_alert", variable=f"{name.upper()}_API_KEY"), show_alert=True
         )
         return
     if name == await get_active_provider():
-        await query.answer("Уже выбрана")
+        await query.answer(t("ai.already"))
         return
 
     await set_active_provider(name)
     text, keyboard = _menu(name)
     if query.message is not None:
         await query.message.edit_text(text, reply_markup=keyboard)
-    await query.answer(f"Теперь посты пишет {PROVIDER_LABELS[name]}")
+    await query.answer(t("ai.switched", label=PROVIDER_LABELS[name]))

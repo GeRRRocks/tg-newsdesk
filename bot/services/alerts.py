@@ -11,6 +11,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 
 from bot.config import get_settings
+from bot.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,5 @@ async def report_error(bot: Bot, exc: BaseException, where: str) -> None:
     _last_error_alert[key] = now
     detail = html.escape(f"{type(exc).__name__}: {exc}"[:300], quote=False)
     await notify_admins(
-        bot,
-        f"⚠️ Ошибка в боте ({html.escape(where, quote=False)}):\n<code>{detail}</code>\n"
-        "Подробности — в логах сервера (make logs).",
+        bot, t("err.report", where=html.escape(where, quote=False), detail=detail)
     )

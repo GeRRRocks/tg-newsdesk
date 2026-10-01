@@ -82,6 +82,7 @@ services:
       # для сообщений админам, если копия не удалась
       BOT_TOKEN: ${BOT_TOKEN:-}
       ADMIN_CHAT_IDS: ${ADMIN_CHAT_IDS:-}
+      BOT_LANGUAGE: ${BOT_LANGUAGE:-ru}
     depends_on:
       db:
         condition: service_healthy
