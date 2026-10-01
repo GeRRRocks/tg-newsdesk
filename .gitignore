@@ -8,11 +8,3 @@ venv/
 .vscode/
 *.log
 backups/
-
-# Тесты и всё, что нужно для их запуска, — только для локальной работы
-tests/
-pytest.ini
-requirements-dev.txt
-Dockerfile.test
-docker-compose.override.yml
-Makefile.local
