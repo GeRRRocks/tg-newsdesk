@@ -19,6 +19,7 @@ from bot.db.models import NewsStatus, PostedNews, Source, SourceType
 from bot.db.session import async_session_factory
 from bot.filters.admin import IsAdmin
 from bot.handlers.base import MenuCallback, main_menu_keyboard
+from bot.services.source_detect import detect_source
 from bot.services.telegram_channel import channel_url, channel_username
 
 router = Router(name="sources")
@@ -252,8 +253,8 @@ async def cb_start_add_source(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AddSourceStates.waiting_url)
     if query.message is not None:
         await query.message.answer(
-            "Пришли адрес источника: URL сайта или RSS-фида (с http:// или https://) "
-            "либо публичный Telegram-канал — @имя или ссылку t.me/имя.",
+            "Пришли адрес источника: главную страницу сайта или RSS-фид (с http:// или https://) "
+            "либо публичный Telegram-канал — @имя или ссылку t.me/имя. Тип определю сам.",
             reply_markup=_cancel_keyboard(),
         )
     await query.answer()
@@ -279,9 +280,29 @@ async def add_source_got_url(message: Message, state: FSMContext) -> None:
         )
         return
 
-    await state.update_data(url=url)
-    await state.set_state(AddSourceStates.waiting_type)
-    await message.answer("Тип источника?", reply_markup=_type_choice_keyboard())
+    # Проверка ходит на сайт и занимает несколько секунд — показываем статус
+    status = await message.answer("🔎 Проверяю адрес и ищу RSS…")
+    detected = await detect_source(url)
+    if detected is None:
+        await state.update_data(url=url)
+        await state.set_state(AddSourceStates.waiting_type)
+        await status.edit_text(
+            "⚠️ Не нашёл ни RSS, ни ссылок на статьи: страница не открылась или устроена "
+            "необычно. Можно выбрать тип вручную, но новостей с такого источника, скорее всего, не будет.",
+            reply_markup=_type_choice_keyboard(),
+        )
+        return
+
+    if detected.source_type == SourceType.RSS:
+        found = f"✅ Нашёл RSS: {html.escape(detected.url, quote=False)}\nНовостей в ленте: {detected.items}."
+    else:
+        found = f"RSS не нашёл — добавлю как HTML-страницу. Ссылок на статьи на ней: {detected.items}."
+    await state.update_data(url=detected.url, source_type=detected.source_type.value)
+    await state.set_state(AddSourceStates.waiting_name)
+    await status.edit_text(
+        f"{found}\n\nНазвание источника? Пришли текстом или нажми «Пропустить».",
+        reply_markup=_skip_name_keyboard(),
+    )
 
 
 @router.callback_query(AddSourceStates.waiting_type, AddSourceTypeCallback.filter())
