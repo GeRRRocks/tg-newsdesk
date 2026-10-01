@@ -11,8 +11,9 @@ admins in a private chat. Nothing reaches the group until an admin presses
 It ships configured for car news, but the subject is just the text of the
 prompt: sources are topic-neutral, so the bot fits a channel on any subject.
 
-> The bot's own interface (menus, buttons, messages to admins) is in Russian.
-> Button names below are given as they appear in the bot, with a translation.
+> The bot's interface is available in Russian (default) and English — set
+> `BOT_LANGUAGE=en` in `.env`, see [Bot language](#bot-language). Button names
+> below are given in Russian with the English label in brackets.
 
 ## How it works
 
@@ -139,7 +140,8 @@ nothing is hard-coded. `.env` is not tracked by git.
 | `TIMEZONE` | schedule time zone (IANA), `Europe/Moscow` by default |
 | `DRAFT_INTERVAL_MINUTES` | initial auto-generation interval, 60 by default |
 | `DRAFT_EXPIRE_HOURS` | hours after which an unanswered draft closes on its own; 24 by default, `0` — never |
-| `BOT_TOPIC` | subject for the default prompt |
+| `BOT_TOPIC` | subject for the default prompt; if unset — “car news” (or its Russian equivalent) |
+| `BOT_LANGUAGE` | bot language: `ru` (default) or `en`, see [Bot language](#bot-language) |
 | `BACKUP_TIME`, `BACKUP_KEEP_DAYS` | time of the daily dump (`03:30` by default) and how many days local copies are kept (14) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_PREFIX` | storage for database copies, see [Backups](#backups); optional |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | credentials of the PostgreSQL container (Docker only) |
@@ -150,6 +152,29 @@ In Docker, `DATABASE_URL` from `.env` is ignored: compose builds it from
 
 `DRAFT_INTERVAL_MINUTES` and `BOT_TOPIC` are starting values only. After the
 first change made through the menu, the settings stored in the database apply.
+
+## Bot language
+
+`BOT_LANGUAGE` in `.env` sets the language of everything the bot shows to
+people: menus and buttons, messages to admins, failure alerts (including those
+from the backup container) and the default prompt.
+
+```bash
+BOT_LANGUAGE=en                  # ru (default) or en
+BOT_TOPIC=car news               # subject for the English prompt
+```
+
+There is one language per installation, changed with a restart:
+`make restart`. Things to know:
+
+- **The prompt decides the language of the posts.** With `en` the default
+  prompt is in English and asks for posts in English. A prompt already changed
+  through the “🏷 Prompt” menu stays as it is — switching the language does not
+  touch it; the reset button in the same menu brings the default prompt back.
+- **`BOT_TOPIC` is inserted into the prompt as is**, so for an English bot
+  write the subject in English or leave it out — “car news” is used then.
+- **Logs stay in Russian.** The installation and swap scripts
+  (`scripts/install.sh`, `scripts/setup-swap.sh`) speak the selected language.
 
 ## LLM provider
 
@@ -364,7 +389,9 @@ version, turn them into “rejected”: in `make psql` run
 
 ### Automatically (Ubuntu, systemd)
 
-The script installs Python and PostgreSQL, creates a swap file on low-memory
+The script first asks for the language — Russian or English: all further
+questions use it, and it also becomes the bot language (`BOT_LANGUAGE`). It
+then installs Python and PostgreSQL, creates a swap file on low-memory
 servers, creates a venv, the database and `.env` (it asks for the LLM, its key
 and the tokens interactively) and registers a systemd service:
 
@@ -419,6 +446,8 @@ Anthropic Python SDK (the other LLMs are called over HTTP with httpx).
 main.py                 # entry point
 bot/
   config.py             # settings from .env (Pydantic Settings)
+  i18n.py               # picks a text in the bot language
+  locales/              # bot texts: ru.py and en.py
   filters/
     admin.py            # IsAdmin — lets only admins through
   handlers/
