@@ -35,6 +35,12 @@ async def on_unhandled_error(event: ErrorEvent, bot: Bot) -> bool:
                 pass
         return True
 
+    # Нажатие пришло с опозданием (обычно после обрыва связи с Telegram):
+    # ответить на него уже нельзя, но само действие выполнено. Не поломка.
+    if isinstance(exc, TelegramBadRequest) and "query is too old" in str(exc):
+        logger.warning("Ответ на нажатие опоздал: %s", exc.message)
+        return True
+
     logger.error("Необработанная ошибка в обработчике", exc_info=exc)
     if query is not None:
         try:

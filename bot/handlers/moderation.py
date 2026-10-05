@@ -242,8 +242,10 @@ async def cb_approve(query: CallbackQuery, callback_data: DraftCallback, bot: Bo
         draft_id = draft.id
         await session.commit()
 
-    await query.answer(t("draft.published_toast"))
+    # Сначала карточки у админов: ответ на нажатие может не дойти (опоздал),
+    # и тогда исключение не должно оставить старые кнопки висеть.
     await _resolve_notifications(bot, draft_id, t("draft.published_note", name=_actor_name(query)))
+    await query.answer(t("draft.published_toast"))
 
 
 @router.callback_query(DraftCallback.filter(F.action == "reject"))
@@ -266,8 +268,10 @@ async def cb_reject(query: CallbackQuery, callback_data: DraftCallback, bot: Bot
         draft_id = draft.id
         await session.commit()
 
-    await query.answer(t("draft.rejected_toast"))
+    # Сначала карточки у админов: ответ на нажатие может не дойти (опоздал),
+    # и тогда исключение не должно оставить старые кнопки висеть.
     await _resolve_notifications(bot, draft_id, t("draft.rejected_note", name=_actor_name(query)))
+    await query.answer(t("draft.rejected_toast"))
 
 
 async def _replace_cards(bot: Bot, news_id: int, draft_id: int, note: str) -> None:
